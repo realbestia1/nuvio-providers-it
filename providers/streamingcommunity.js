@@ -29,7 +29,7 @@ async function getTmdbId(imdbId, type) {
         
         return null;
     } catch (e) {
-        console.error('[StreamingCommunity] Conversion error:', e);
+        console.error('[VixSrc] Conversion error:', e);
         return null;
     }
 }
@@ -45,9 +45,9 @@ async function getStreams(id, type, season, episode) {
         const convertedId = await getTmdbId(tmdbId, type);
         if (convertedId) {
             tmdbId = convertedId;
-            console.log(`[StreamingCommunity] Converted ${id} to TMDB ID: ${tmdbId}`);
+            console.log(`[VixSrc] Converted ${id} to TMDB ID: ${tmdbId}`);
         } else {
-            console.warn(`[StreamingCommunity] Could not convert IMDb ID ${id} to TMDB ID.`);
+            console.warn(`[VixSrc] Could not convert IMDb ID ${id} to TMDB ID.`);
             return [];
         }
     }
@@ -71,7 +71,7 @@ async function getStreams(id, type, season, episode) {
         });
 
         if (!response.ok) {
-            console.error(`[StreamingCommunity] Failed to fetch page: ${response.status}`);
+            console.error(`[VixSrc] Failed to fetch page: ${response.status}`);
             return [];
         }
 
@@ -96,7 +96,7 @@ async function getStreams(id, type, season, episode) {
 
             // Verify playlist content (must have Italian audio and 1080p)
             try {
-                console.log(`[StreamingCommunity] Verifying playlist content for ${tmdbId}...`);
+                console.log(`[VixSrc] Verifying playlist content for ${tmdbId}...`);
                 const playlistResponse = await fetch(streamUrl, {
                     headers: {
                         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -114,29 +114,29 @@ async function getStreams(id, type, season, episode) {
                     const has1080p = /RESOLUTION=\d+x1080|RESOLUTION=1080/i.test(playlistText);
                     
                     if (!hasItalian) {
-                        console.log(`[StreamingCommunity] Skipping: No Italian audio found.`);
+                        console.log(`[VixSrc] Skipping: No Italian audio found.`);
                         return [];
                     }
                     
                     if (!has1080p) {
-                        console.log(`[StreamingCommunity] Skipping: No 1080p stream found.`);
+                        console.log(`[VixSrc] Skipping: No 1080p stream found.`);
                         return [];
                     }
                     
-                    console.log(`[StreamingCommunity] Verified: Has Italian audio and 1080p.`);
+                    console.log(`[VixSrc] Verified: Has Italian audio and 1080p.`);
                 } else {
-                    console.warn(`[StreamingCommunity] Failed to fetch playlist for verification: ${playlistResponse.status}`);
+                    console.warn(`[VixSrc] Failed to fetch playlist for verification: ${playlistResponse.status}`);
                     // If we can't verify, maybe safe to skip? Or return anyway?
                     // User said "open it and send ONLY IF...", so if we fail to open, we fail to verify.
                     return [];
                 }
             } catch (verError) {
-                console.error(`[StreamingCommunity] Error verifying playlist:`, verError);
+                console.error(`[VixSrc] Error verifying playlist:`, verError);
                 return [];
             }
             
             return [{
-                name: 'StreamingCommunity',
+                name: 'VixSrc',
                 title: 'Watch',
                 url: streamUrl,
                 quality: '1080p',
@@ -146,13 +146,13 @@ async function getStreams(id, type, season, episode) {
                 }
             }];
         } else {
-            console.log('[StreamingCommunity] Could not find playlist info in HTML');
+            console.log('[VixSrc] Could not find playlist info in HTML');
         }
 
         return [];
 
     } catch (error) {
-        console.error('[StreamingCommunity] Error:', error);
+        console.error('[VixSrc] Error:', error);
         return [];
     }
 }

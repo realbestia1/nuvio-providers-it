@@ -1,4 +1,4 @@
-const streamingcommunity = require('./streamingcommunity');
+const vixsrc = require('./vixsrc');
 const guardahd = require('./guardahd');
 const eurostreaming = require('./eurostreaming');
 const guardaserie = require('./guardaserie');
@@ -10,20 +10,20 @@ async function getStreams(id, type, season, episode) {
     console.log(`[MultiProvider] Requesting streams for ${id} (${type})`);
 
     // Execute in parallel
-    const [scResult, guardahdResult, euroResult, guardaserieResult] = await Promise.allSettled([
-        streamingcommunity.getStreams(id, type, season, episode),
+    const [vixResult, guardahdResult, euroResult, guardaserieResult] = await Promise.allSettled([
+        vixsrc.getStreams(id, type, season, episode),
         guardahd.getStreams(id, type, season, episode),
         eurostreaming.getStreams(id, type, season, episode),
         guardaserie.getStreams(id, type, season, episode)
     ]);
 
-    if (scResult.status === 'fulfilled') {
-        if (scResult.value && scResult.value.length > 0) {
-            console.log(`[MultiProvider] StreamingCommunity found ${scResult.value.length} streams`);
-            streams.push(...scResult.value);
+    if (vixResult.status === 'fulfilled') {
+        if (vixResult.value && vixResult.value.length > 0) {
+            console.log(`[MultiProvider] VixSrc found ${vixResult.value.length} streams`);
+            streams.push(...vixResult.value);
         }
     } else {
-        console.error('[MultiProvider] StreamingCommunity error:', scResult.reason);
+        console.error('[MultiProvider] VixSrc error:', vixResult.reason);
     }
 
     if (guardahdResult.status === 'fulfilled') {

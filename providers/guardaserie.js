@@ -1,6 +1,4 @@
-const extractMixDrop = require('../extractors/mixdrop');
-const extractDropLoad = require('../extractors/dropload');
-const extractSuperVideo = require('../extractors/supervideo');
+// const fetch = require('node-fetch');
 
 const BASE_URL = 'https://guardaserietv.best';
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
@@ -38,6 +36,193 @@ async function getShowInfo(tmdbId, type) {
         return await response.json();
     } catch (e) {
         console.error('[Guardaserie] TMDB error:', e);
+        return null;
+    }
+}
+
+// Unpacker for Dean Edwards packer
+function unPack(p, a, c, k, e, d) {
+    e = function (c) {
+        return (c < a ? '' : e(parseInt(c / a))) + ((c = c % a) > 35 ? String.fromCharCode(c + 29) : c.toString(36))
+    };
+    if (!''.replace(/^/, String)) {
+        while (c--) {
+            d[e(c)] = k[c] || e(c)
+        }
+        k = [function (e) {
+            return d[e]
+        }];
+        e = function () {
+            return '\\w+'
+        };
+        c = 1
+    };
+    while (c--) {
+        if (k[c]) {
+            p = p.replace(new RegExp('\\b' + e(c) + '\\b', 'g'), k[c])
+        }
+    }
+    return p;
+}
+
+async function extractMixDrop(url) {
+    try {
+        if (url.startsWith('//')) url = 'https:' + url;
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': USER_AGENT,
+                'Referer': BASE_URL
+            }
+        });
+
+        if (!response.ok) return null;
+        const html = await response.text();
+
+        const packedRegex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\),(\d+),(\{\})\)\)/;
+        const match = packedRegex.exec(html);
+
+        if (match) {
+            const p = match[1];
+            const a = parseInt(match[2]);
+            const c = parseInt(match[3]);
+            const k = match[4].split('|');
+            const unpacked = unPack(p, a, c, k, null, {});
+            
+            const wurlMatch = unpacked.match(/wurl="([^"]+)"/);
+            if (wurlMatch) {
+                let streamUrl = wurlMatch[1];
+                if (streamUrl.startsWith('//')) streamUrl = 'https:' + streamUrl;
+                
+                // Use origin from the input URL as Referer (handles .co, .to, .ch etc.)
+                const urlObj = new URL(url);
+                const referer = urlObj.origin + '/';
+                const origin = urlObj.origin;
+                
+                // Nuvio documentation specifies passing headers in a separate object.
+            // Do NOT append headers to the URL (e.g. |Referer=...) as this might break the URL in Nuvio's player.
+
+            return {
+                url: streamUrl,
+                headers: {
+                    "User-Agent": USER_AGENT,
+                    "Referer": referer,
+                    "Origin": origin
+                }
+            };
+            }
+        }
+        return null;
+    } catch (e) {
+        console.error('[Guardaserie] MixDrop extraction error:', e);
+        return null;
+    }
+}
+
+async function extractDropLoad(url) {
+    try {
+        if (url.startsWith('//')) url = 'https:' + url;
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': USER_AGENT,
+                'Referer': BASE_URL
+            }
+        });
+
+        if (!response.ok) return null;
+        const html = await response.text();
+
+        // Dropload might use different packing or none
+        // Check for packer first
+        const regex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
+        const match = regex.exec(html);
+
+        if (match) {
+            let p = match[1];
+            const a = parseInt(match[2]);
+            let c = parseInt(match[3]);
+            const k = match[4].split('|');
+            
+            // Simple unpack logic if different from unPack function
+            while (c--) {
+                if (k[c]) {
+                    const pattern = new RegExp('\\b' + c.toString(a) + '\\b', 'g');
+                    p = p.replace(pattern, k[c]);
+                }
+            }
+            
+            const fileMatch = p.match(/file:"(.*?)"/);
+            if (fileMatch) {
+                let streamUrl = fileMatch[1];
+                if (streamUrl.startsWith('//')) streamUrl = 'https:' + streamUrl;
+                
+                // Use origin as Referer
+                const referer = new URL(url).origin + '/';
+                
+                return {
+                    url: streamUrl,
+                    headers: {
+                        'User-Agent': USER_AGENT,
+                        'Referer': referer
+                    }
+                };
+            }
+        }
+        return null;
+    } catch (e) {
+        console.error('[Guardaserie] DropLoad extraction error:', e);
+        return null;
+    }
+}
+
+async function extractSuperVideo(url) {
+    try {
+        if (url.startsWith('//')) url = 'https:' + url;
+        // Supervideo often needs /e/ or /embed- in URL
+        let directUrl = url;
+        
+        let response = await fetch(directUrl, {
+            headers: {
+                'User-Agent': USER_AGENT,
+                'Referer': BASE_URL
+            }
+        });
+
+        let html = await response.text();
+        
+        if (html.includes('This video can be watched as embed only')) {
+             // Convert to embed URL if not already
+             if (!url.includes('/e/') && !url.includes('/embed-')) {
+                 directUrl = url.replace('.cc/', '.cc/e/');
+                 response = await fetch(directUrl, {
+                   headers: {
+                       'User-Agent': USER_AGENT,
+                       'Referer': BASE_URL
+                   }
+               });
+                html = await response.text();
+             }
+        }
+
+        const packedRegex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
+        const match = packedRegex.exec(html);
+
+        if (match) {
+            const p = match[1];
+            const a = parseInt(match[2]);
+            const c = parseInt(match[3]);
+            const k = match[4].split('|');
+            const unpacked = unPack(p, a, c, k, null, {});
+            
+            const fileMatch = unpacked.match(/file:"(.*?)"/);
+            if (fileMatch) {
+                let streamUrl = fileMatch[1];
+                if (streamUrl.startsWith('//')) streamUrl = 'https:' + streamUrl;
+                return streamUrl;
+            }
+        }
+        return null;
+    } catch (e) {
+        console.error('[Guardaserie] SuperVideo extraction error:', e);
         return null;
     }
 }
@@ -170,7 +355,7 @@ async function getStreams(id, type, season, episode) {
                 let playerName = 'Unknown';
                 
                 if (link.includes('dropload')) {
-                    const extracted = await extractDropLoad(link, BASE_URL, USER_AGENT);
+                    const extracted = await extractDropLoad(link);
                     if (extracted && extracted.url) {
                         return {
                             url: extracted.url,
@@ -180,7 +365,7 @@ async function getStreams(id, type, season, episode) {
                         };
                     }
                 } else if (link.includes('supervideo')) {
-                    streamUrl = await extractSuperVideo(link, BASE_URL, USER_AGENT);
+                    streamUrl = await extractSuperVideo(link);
                     playerName = 'SuperVideo';
                     if (streamUrl) {
                         return {
@@ -190,7 +375,7 @@ async function getStreams(id, type, season, episode) {
                         };
                     }
                 } else if (link.includes('mixdrop')) {
-                    const extracted = await extractMixDrop(link, BASE_URL, USER_AGENT);
+                    const extracted = await extractMixDrop(link);
                     if (extracted && extracted.url) {
                         return {
                             url: extracted.url,
