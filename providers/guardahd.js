@@ -5,7 +5,7 @@ const extractSuperVideo = require('../extractors/supervideo');
 
 const BASE_URL = 'https://guardahd.stream';
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
-const USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36';
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 async function getImdbId(tmdbId, type) {
     try {

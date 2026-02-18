@@ -12,6 +12,8 @@ async function extractSuperVideo(url, referer, userAgent) {
             }
         });
 
+        if (!response.ok) return null;
+
         let html = await response.text();
         
         if (html.includes('This video can be watched as embed only')) {
@@ -40,13 +42,17 @@ async function extractSuperVideo(url, referer, userAgent) {
             const a = parseInt(match[2]);
             const c = parseInt(match[3]);
             const k = match[4].split('|');
-            const unpacked = unPack(p, a, c, k, null, {});
-            
-            const fileMatch = unpacked.match(/sources:\[\{file:"(.*?)"/);
-            if (fileMatch) {
-                let streamUrl = fileMatch[1];
-                if (streamUrl.startsWith('//')) streamUrl = 'https:' + streamUrl;
-                return streamUrl;
+            try {
+                const unpacked = unPack(p, a, c, k, null, {});
+                
+                const fileMatch = unpacked.match(/sources:\[\{file:"(.*?)"/);
+                if (fileMatch) {
+                    let streamUrl = fileMatch[1];
+                    if (streamUrl.startsWith('//')) streamUrl = 'https:' + streamUrl;
+                    return streamUrl;
+                }
+            } catch (e) {
+                console.error('[SuperVideo] Unpack error:', e);
             }
         }
         return null;
