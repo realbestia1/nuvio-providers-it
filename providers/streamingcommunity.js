@@ -20,6 +20,18 @@ var __async = (__this, __arguments, generator) => {
 };
 const BASE_URL = "https://vixsrc.to";
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
+const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+const COMMON_HEADERS = {
+  "User-Agent": USER_AGENT,
+  "Referer": "https://vixsrc.to/",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+  "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+  "Sec-Fetch-Dest": "document",
+  "Sec-Fetch-Mode": "navigate",
+  "Sec-Fetch-Site": "none",
+  "Sec-Fetch-User": "?1",
+  "Upgrade-Insecure-Requests": "1"
+};
 function getTmdbId(imdbId, type) {
   return __async(this, null, function* () {
     const endpoint = type === "movie" ? "movie" : "tv";
@@ -65,12 +77,9 @@ function getStreams(id, type, season, episode) {
       return [];
     }
     try {
+      console.log(`[StreamingCommunity] Fetching page: ${url}`);
       const response = yield fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Referer": "https://vixsrc.to/",
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-        }
+        headers: COMMON_HEADERS
       });
       if (!response.ok) {
         console.error(`[StreamingCommunity] Failed to fetch page: ${response.status}`);
@@ -91,47 +100,31 @@ function getStreams(id, type, season, episode) {
         } else {
           streamUrl = `${baseUrl}?token=${token}&expires=${expires}&h=1&lang=it`;
         }
-        console.log(`[StreamingCommunity] Verifying playlist content...`);
+        console.log(`[StreamingCommunity] Found stream URL: ${streamUrl}`);
         try {
           const playlistResponse = yield fetch(streamUrl, {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-              "Referer": "https://vixsrc.to/"
-            }
+            headers: COMMON_HEADERS
           });
           if (playlistResponse.ok) {
             const playlistText = yield playlistResponse.text();
             const hasItalian = /LANGUAGE="it"|LANGUAGE="ita"|NAME="Italian"/i.test(playlistText);
             const has1080p = /RESOLUTION=\d+x1080|RESOLUTION=1080/i.test(playlistText);
-            if (hasItalian) {
-              console.log(`[StreamingCommunity] Verified: Has Italian audio.`);
-            } else {
-              console.log(`[StreamingCommunity] Warning: No explicit Italian audio found in manifest.`);
-            }
-            if (has1080p) {
-              console.log(`[StreamingCommunity] Verified: Has 1080p stream.`);
-            } else {
-              console.log(`[StreamingCommunity] Info: 1080p stream not explicitly found.`);
-            }
-            return [{
-              name: "StreamingCommunity",
-              title: "Watch",
-              url: streamUrl,
-              quality: "Auto",
-              type: "direct",
-              headers: {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Referer": "https://vixsrc.to/"
-              }
-            }];
+            if (hasItalian) console.log(`[StreamingCommunity] Verified: Has Italian audio.`);
+            if (has1080p) console.log(`[StreamingCommunity] Verified: Has 1080p stream.`);
           } else {
-            console.warn(`[StreamingCommunity] Failed to fetch playlist for verification: ${playlistResponse.status}`);
-            return [];
+            console.warn(`[StreamingCommunity] Playlist check failed (${playlistResponse.status}), returning anyway.`);
           }
         } catch (verError) {
-          console.error(`[StreamingCommunity] Error verifying playlist:`, verError);
-          return [];
+          console.warn(`[StreamingCommunity] Playlist check error, returning anyway:`, verError);
         }
+        return [{
+          name: "StreamingCommunity",
+          title: "Watch",
+          url: streamUrl,
+          quality: "1080p",
+          type: "direct",
+          headers: COMMON_HEADERS
+        }];
       } else {
         console.log("[StreamingCommunity] Could not find playlist info in HTML");
         return [];
