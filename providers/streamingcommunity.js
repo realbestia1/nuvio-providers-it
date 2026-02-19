@@ -105,23 +105,23 @@ async function getStreams(id, type, season, episode) {
                     const hasItalian = /LANGUAGE="it"|LANGUAGE="ita"|NAME="Italian"/i.test(playlistText);
                     const has1080p = /RESOLUTION=\d+x1080|RESOLUTION=1080/i.test(playlistText);
 
-                    if (!hasItalian) {
-                        console.log(`[StreamingCommunity] Skipping: No Italian audio found.`);
-                        return [];
+                    if (hasItalian) {
+                        console.log(`[StreamingCommunity] Verified: Has Italian audio.`);
+                    } else {
+                        console.log(`[StreamingCommunity] Warning: No explicit Italian audio found in manifest.`);
                     }
                     
-                    if (!has1080p) {
-                         console.log(`[StreamingCommunity] Skipping: No 1080p stream found.`);
-                         return [];
+                    if (has1080p) {
+                         console.log(`[StreamingCommunity] Verified: Has 1080p stream.`);
+                    } else {
+                         console.log(`[StreamingCommunity] Info: 1080p stream not explicitly found.`);
                     }
-
-                    console.log(`[StreamingCommunity] Verified: Has Italian audio and 1080p.`);
 
                     return [{
                         name: 'StreamingCommunity',
                         title: 'Watch',
                         url: streamUrl,
-                        quality: '1080p',
+                        quality: 'Auto',
                         type: 'direct',
                         headers: {
                             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
