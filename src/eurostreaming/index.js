@@ -279,6 +279,83 @@ function getTmdbIdFromImdb(imdbId, type) {
     }
   });
 }
+
+async function verifyCandidateWithTmdb(title, targetTmdbId, type) {
+    try {
+        const searchUrl = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(title)}&api_key=${TMDB_API_KEY}&language=it-IT`;
+        const response = await fetch(searchUrl);
+        if (!response.ok) return true; 
+        const data = await response.json();
+        
+        if (data.results && data.results.length > 0) {
+            // Check if the top result matches our target ID
+            const topResult = data.results[0];
+            if (String(topResult.id) === String(targetTmdbId)) {
+                return true;
+            }
+            
+            // If top result is different, it might be a wrong match (e.g. Live Action vs Anime)
+            console.log(`[EuroStreaming] Title verification mismatch: Candidate "${title}" maps to ID ${topResult.id} (${topResult.name || topResult.title}), but expected ${targetTmdbId}`);
+            return false;
+        }
+        return true; // No results found, give benefit of doubt
+    } catch (e) {
+        console.error("[EuroStreaming] Verification error:", e);
+        return true;
+    }
+}
+
+async function verifyMoviePlayer(url, targetYear) {
+    try {
+        console.log(`[EuroStreaming] Verifying via MoviePlayer: ${url}`);
+        const response = await fetch(url, {
+            headers: {
+                "User-Agent": USER_AGENT
+            }
+        });
+        if (!response.ok) return false;
+        const html = await response.text();
+        
+        // Look for "trasmessa dal YYYY" or "Prima messa in onda originale ... YYYY"
+        // Pattern 1: trasmessa dal 2008
+        const yearMatch1 = html.match(/trasmessa dal (\d{4})/i);
+        if (yearMatch1) {
+            const foundYear = parseInt(yearMatch1[1]);
+            if (Math.abs(foundYear - targetYear) <= 1) {
+                console.log(`[EuroStreaming] MoviePlayer verified year ${foundYear} (Target: ${targetYear})`);
+                return true;
+            }
+        }
+
+        // Pattern 2: Prima messa in onda originale ... YYYY
+        const yearMatch2 = html.match(/Prima messa in onda originale.*?(\d{4})/i);
+        if (yearMatch2) {
+             const foundYear = parseInt(yearMatch2[1]);
+             if (Math.abs(foundYear - targetYear) <= 1) {
+                console.log(`[EuroStreaming] MoviePlayer verified year ${foundYear} (Target: ${targetYear})`);
+                return true;
+            }
+        }
+
+        // Pattern 3: Title (YYYY)
+        const titleMatch = html.match(/<title>.*\(.*(\d{4}).*\).*<\/title>/is);
+        if (titleMatch) {
+             const foundYear = parseInt(titleMatch[1]);
+             // Allow a wider range for title year as it might be end year, but usually start year is mentioned
+             if (Math.abs(foundYear - targetYear) <= 2) { 
+                 console.log(`[EuroStreaming] MoviePlayer verified title year ${foundYear} (Target: ${targetYear})`);
+                 return true;
+             }
+        }
+        
+        console.log(`[EuroStreaming] MoviePlayer verification failed. Target Year: ${targetYear}`);
+        return false;
+    } catch (e) {
+        console.error("[EuroStreaming] MoviePlayer error:", e);
+        return false;
+    }
+}
+
 function getStreams(id, type, season, episode, showInfo) {
   return __async(this, null, function* () {
     if (String(type).toLowerCase() === "movie") return [];
@@ -373,21 +450,72 @@ function getStreams(id, type, season, episode, showInfo) {
               return;
             }
             const html = yield response.text();
-            if (imdbId) {
+
+            let isVerified = false;
+
+            // 1. Check for TMDB Link (Strongest verification)
+            // Example link: https://www.themoviedb.org/tv/37854-one-piece
+            const tmdbLinkMatches = html.match(/themoviedb\.org\/(?:tv|movie)\/(\d+)/g);
+            if (tmdbLinkMatches) {
+                 const foundIds = tmdbLinkMatches.map(l => {
+                     const m = l.match(/\/(\d+)/);
+                     return m ? m[1] : null;
+                 }).filter(Boolean);
+                 
+                 if (foundIds.includes(String(tmdbId))) {
+                     console.log(`[EuroStreaming] Verified candidate ${candidate.title} via TMDB link.`);
+                     isVerified = true;
+                 }
+            }
+
+            // 1.5 Check for MoviePlayer.it link (if not verified)
+            if (!isVerified) {
+                const mpLinkMatch = html.match(/href=["'](https?:\/\/(?:www\.)?movieplayer\.it\/serietv\/[^"']+)["']/i);
+                if (mpLinkMatch) {
+                    const mpUrl = mpLinkMatch[1];
+                    const targetYear = fetchedShowInfo && (fetchedShowInfo.first_air_date || fetchedShowInfo.release_date) 
+                        ? parseInt((fetchedShowInfo.first_air_date || fetchedShowInfo.release_date).substring(0, 4)) 
+                        : null;
+                    
+                    if (targetYear) {
+                         const mpVerified = yield verifyMoviePlayer(mpUrl, targetYear);
+                         if (mpVerified) {
+                             isVerified = true;
+                             console.log(`[EuroStreaming] Verified candidate ${candidate.title} via MoviePlayer link.`);
+                         }
+                    }
+                }
+            }
+
+            // 2. Check for IMDb ID (if not already verified)
+            if (!isVerified && imdbId) {
               const targetImdbId = imdbId;
               const imdbMatches = html.match(/tt\d{7,8}/g);
+              
               if (imdbMatches && imdbMatches.length > 0) {
-                const hasTargetId = imdbMatches.includes(targetImdbId);
-                const otherIds = imdbMatches.filter((m) => m !== targetImdbId);
-                if (!hasTargetId && otherIds.length > 0) {
-                  console.log(`[EuroStreaming] Rejected candidate ${candidate.url} due to IMDB ID mismatch. Found: ${otherIds.join(", ")}`);
-                  return;
-                }
+                const hasTargetId = imdbMatches.some((match) => match === targetImdbId);
                 if (hasTargetId) {
-                  console.log(`[EuroStreaming] Verified candidate ${candidate.url} with IMDB ID match.`);
+                  console.log(`[EuroStreaming] Verified candidate ${candidate.title} with IMDB ID match.`);
+                  isVerified = true;
+                } else {
+                  console.log(`[EuroStreaming] Rejected candidate ${candidate.title} due to IMDB ID mismatch. Found: ${imdbMatches.join(", ")}`);
+                  return;
                 }
               }
             }
+
+            // 3. Fallback: Title/Reverse Verification (if not yet verified)
+            if (!isVerified) {
+                 console.log(`[EuroStreaming] No direct ID match found for ${candidate.title}. Verifying via TMDB search...`);
+                 const isTitleMatch = yield verifyCandidateWithTmdb(candidate.title, tmdbId, "tv");
+                 if (!isTitleMatch) {
+                    console.log(`[EuroStreaming] Rejected candidate ${candidate.title} due to Title mismatch.`);
+                    return;
+                 }
+                 console.log(`[EuroStreaming] Verified candidate ${candidate.title} via TMDB search.`);
+                 isVerified = true;
+            }
+
             const episodeStr1 = `${season}x${episode}`;
             const episodeStr2 = `${season}x${episode.toString().padStart(2, "0")}`;
             const episodeRegex = new RegExp(`data-num="(${episodeStr1}|${episodeStr2})"`, "i");

@@ -5,7 +5,7 @@
     {
       "id": "nuvio-it-providers-eurostreaming",
       "name": "EuroStreaming",
-      "version": "1.0.24",
+      "version": "1.0.25",
       "description": "TV Series from EuroStreaming",
       "resources": ["stream"],
       "contentLanguage": ["it"],
