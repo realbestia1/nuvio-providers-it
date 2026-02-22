@@ -536,8 +536,8 @@ async function fetchTooltipDate(tooltipUrl) {
         const html = await response.text();
         
         // Extract Year from "Data di uscita: ... 20 Ottobre 1999"
-        // Look for "Data di uscita:" label and then subsequent text
-        const dateMatch = /Data di uscita:[\s\S]*?<span>([\s\S]*?)<\/span>/i.exec(html);
+        // Look for "Data di uscita:" label and then subsequent text (either in span or dd)
+        const dateMatch = /Data di uscita:[\s\S]*?(?:<dd>|<span>)([\s\S]*?)(?:<\/dd>|<\/span>)/i.exec(html);
         if (dateMatch) {
             const dateStr = dateMatch[1].trim();
             // Try to extract year (last 4 digits)

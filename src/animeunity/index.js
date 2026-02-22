@@ -158,13 +158,22 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
     
     if (metaYear && (season === 1 || !isTv)) {
         const yearFiltered = filteredCandidates.filter(c => {
-            if (!c.date || c.date === "Indeterminato" || c.date === "?") return true; 
+            if (!c.date || c.date === "Indeterminato" || c.date === "?") {
+                // Strict check: if date is missing/indeterminato, we filter it out (unless user wants to keep it?)
+                // Assuming we tried enrichment already.
+                // If it's still missing, it's safer to discard to avoid false positives.
+                console.log(`[AnimeUnity] Filtered out "${c.title}" (Date: ${c.date})`);
+                return false; 
+            }
             const match = c.date.match(/(\d{4})/);
             if (match) {
                 const cYear = parseInt(match[1]);
-                return Math.abs(cYear - metaYear) <= 2; 
+                const diff = Math.abs(cYear - metaYear);
+                const keep = diff <= 2;
+                if (!keep) console.log(`[AnimeUnity] Filtered out "${c.title}" (${cYear}) vs Meta (${metaYear})`);
+                return keep;
             }
-            return true;
+            return false;
         });
         
         if (yearFiltered.length > 0) {
@@ -418,6 +427,34 @@ async function searchAnime(query) {
     }
 }
 
+async function fetchAnimeYear(id, slug) {
+    if (!id || !slug) return null;
+    try {
+        // AnimeUnity URL structure: /anime/{id}-{slug}
+        const url = `${BASE_URL}/anime/${id}-${slug}`;
+        const response = await fetch(url, {
+            headers: {
+                "User-Agent": USER_AGENT,
+                "Referer": BASE_URL
+            }
+        });
+        
+        if (!response.ok) return null;
+        const html = await response.text();
+        
+        // Extract Year from <div class="info-item"><strong>Anno</strong><br> <small>1999</small></div>
+        // Or simply look for <strong>Anno</strong>...<small>YYYY</small>
+        const dateMatch = /<strong>Anno<\/strong>[\s\S]*?<small>(\d{4})<\/small>/i.exec(html);
+        if (dateMatch) {
+            return dateMatch[1];
+        }
+        return null;
+    } catch (e) {
+        console.error("[AnimeUnity] Detail fetch error:", e);
+        return null;
+    }
+}
+
 async function getStreams(id, type, season, episode) {
     try {
         const metadata = await getMetadata(id, type);
@@ -626,6 +663,30 @@ async function getStreams(id, type, season, episode) {
 
         const subs = candidates.filter(c => !(c.title || "").includes("(ITA)") && !(c.title_eng || "").includes("(ITA)"));
         const dubs = candidates.filter(c => (c.title || "").includes("(ITA)") || (c.title_eng || "").includes("(ITA)"));
+
+        // Helper to enrich top candidates with year if missing/Indeterminato
+        const enrichTopCandidates = async (list) => {
+            // Only process top 3 candidates to avoid too many requests
+            const top = list.slice(0, 3);
+            await Promise.all(top.map(async (c) => {
+                // If date is missing, Indeterminato, or ?, try to fetch it
+                if (!c.date || c.date === "Indeterminato" || c.date === "?") {
+                    console.log(`[AnimeUnity] Fetching year for "${c.title}" (Date: ${c.date})`);
+                    const year = await fetchAnimeYear(c.id, c.slug);
+                    if (year) {
+                        c.date = year;
+                        console.log(`[AnimeUnity] Enriched "${c.title}" with year: ${year}`);
+                    } else {
+                        console.log(`[AnimeUnity] Failed to enrich "${c.title}" (no year found)`);
+                    }
+                }
+            }));
+            return top;
+        };
+
+        // Enrich candidates before finding best match
+        if (subs.length > 0) await enrichTopCandidates(subs);
+        if (dubs.length > 0) await enrichTopCandidates(dubs);
 
         let bestSub = findBestMatch(subs, title, originalTitle, season, metadata, { bypassSeasonCheck: seasonNameMatch });
         let bestDub = findBestMatch(dubs, title, originalTitle, season, metadata, { bypassSeasonCheck: seasonNameMatch });
