@@ -141,9 +141,17 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
 
     if (metaYear && (season === 1 || !isTv)) {
         const yearFiltered = candidates.filter(c => {
-            if (!c.date) return true; 
+            if (!c.date) {
+                // Strict check: if we are filtering by year, we expect a date.
+                // If enrichment failed, we discard to avoid false positives (e.g. One Piece 1999 vs 2023).
+                console.log(`[AnimeWorld] Filtered out "${c.title}" (no date)`);
+                return false; 
+            }
             const cYear = parseInt(c.date);
-            return Math.abs(cYear - metaYear) <= 2;
+            const diff = Math.abs(cYear - metaYear);
+            const keep = diff <= 2;
+            if (!keep) console.log(`[AnimeWorld] Filtered out "${c.title}" (${cYear}) vs Meta (${metaYear})`);
+            return keep;
         });
         
         if (yearFiltered.length > 0) {
@@ -965,5 +973,6 @@ async function getStreams(id, type, season, episode) {
 
 module.exports = {
     getStreams,
-    searchAnime
+    searchAnime,
+    getMetadata
 };
