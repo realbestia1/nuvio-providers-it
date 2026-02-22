@@ -68,6 +68,19 @@ async function getSeasonMetadata(id, season) {
 function calculateAbsoluteEpisode(metadata, season, episode) {
     if (!metadata || !metadata.seasons || season === 1) return episode;
     
+    // Check if the provided episode number is likely already absolute
+    // (i.e. it exceeds the episode count of the requested season)
+    const currentSeason = metadata.seasons.find(s => s.season_number === season);
+    if (currentSeason && episode > currentSeason.episode_count) {
+        // Double check: if it's within the cumulative range of previous seasons + current season?
+        // Actually, if it's > episode_count, it CANNOT be relative to this season.
+        // Unless metadata is wrong. But assuming metadata is somewhat correct (TMDB),
+        // and user input is from a system aware of absolute numbering (like some trackers),
+        // it's safer to treat it as absolute.
+        // For One Piece S4: 39 eps. Request 101. Definitely absolute.
+        return episode;
+    }
+    
     let absoluteEpisode = parseInt(episode);
     for (const s of metadata.seasons) {
         if (s.season_number > 0 && s.season_number < season) {
@@ -341,6 +354,24 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
                 return regex.test(t) || regex.test(te);
             });
             if (romanMatch) return romanMatch;
+        }
+
+        // Fallback: Check if we have the exact base title match
+        // This handles long-running series like One Piece where all seasons are in one entry
+        const baseMatch = filteredCandidates.find(c => {
+             const t = (c.title || "").toLowerCase().trim();
+             const te = (c.title_eng || "").toLowerCase().trim();
+             const tClean = t.replace(/\s*\(ita\)$/i, "").trim();
+             const teClean = te.replace(/\s*\(ita\)$/i, "").trim();
+             
+             // Check exact match with title or original title
+             return t === normTitle || te === normTitle || tClean === normTitle || teClean === normTitle ||
+                    (normOriginal && (t === normOriginal || te === normOriginal || tClean === normOriginal || teClean === normOriginal));
+        });
+        
+        if (baseMatch) {
+            console.log(`[AnimeUnity] Found base title match for Season ${season}: ${baseMatch.title || baseMatch.title_eng}`);
+            return baseMatch;
         }
     } else {
         // Season 1: Try to avoid titles with numbers at the end (likely sequels)

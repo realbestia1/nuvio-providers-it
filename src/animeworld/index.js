@@ -101,16 +101,38 @@ const checkSimilarity = (candTitle, targetTitle) => {
     if (t1.includes(t2) || t2.includes(t1)) return true;
     
     // Word overlap
-    const w1 = t1.split(/\s+/).filter(w => w.length > 2);
-    const w2 = t2.split(/\s+/).filter(w => w.length > 2);
+    const stopWords = new Set([
+        // English
+        "the", "a", "an", "and", "or", "of", "to", "in", "on", "at", "by", "for", "with", "is", "are", "was", "were", "be", "been",
+        // Italian
+        "il", "lo", "la", "i", "gli", "le", "un", "uno", "una", "e", "o", "di", "a", "da", "in", "con", "su", "per", "tra", "fra", "che"
+    ]);
+
+    const tokenize = x => x.split(/\s+/).filter(w => {
+        const word = w.toLowerCase();
+        if (/^\d+$/.test(word)) return true;
+        if (stopWords.has(word)) return false;
+        return w.length > 1;
+    });
+
+    const w1 = tokenize(t1);
+    const w2 = tokenize(t2);
     
     if (w1.length === 0 || w2.length === 0) return false;
     
     let matches = 0;
+    let textMatches = 0;
     for (const w of w2) {
-        if (w1.includes(w)) matches++;
+        if (w1.includes(w)) {
+            matches++;
+            if (!/^\d+$/.test(w)) textMatches++;
+        }
     }
     
+    // If target has text words, but we only matched numbers, it's weak.
+    const hasText = w2.some(w => !/^\d+$/.test(w));
+    if (hasText && textMatches === 0) return false;
+
     const score = matches / w2.length;
     // console.log(`[AnimeWorld] Similarity: "${t1}" vs "${t2}" -> score ${score} (matches: ${matches}/${w2.length})`);
     
@@ -121,7 +143,13 @@ const checkSimilarity = (candTitle, targetTitle) => {
 function findBestMatch(candidates, title, originalTitle, season, metadata, options = {}) {
     if (!candidates || candidates.length === 0) return null;
 
-    const isTv = !!metadata.name;
+    let isTv = !!metadata.name;
+    // Better detection for Movie vs TV
+    if (metadata.type === 'movie' || (metadata.genres && metadata.genres.some(g => (g.name || "").toLowerCase() === 'movie'))) {
+        isTv = false;
+    } else if (metadata.title && !metadata.name) {
+        isTv = false;
+    }
     
     // Normalize titles
     const normTitle = title.toLowerCase().trim();
@@ -142,6 +170,61 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
     if (metaYear && (season === 1 || !isTv)) {
         const yearFiltered = candidates.filter(c => {
             if (!c.date) {
+                // If the title is a very strong match (via similarity check), we keep it even without a date
+                // especially for movies where date scraping might fail or be limited
+                if (!isTv) {
+                    // Use a slightly looser check for movies without date to avoid discarding valid matches
+                    // like "One Piece Movie 13: Gold" vs "One Piece Film: Gold"
+                    const sim1 = checkSimilarity(c.title, title);
+                    const sim2 = checkSimilarity(c.title, originalTitle);
+                    const isSimilar = sim1 || sim2;
+                    
+                    console.log(`[AnimeWorld Debug] Sim check for "${c.title}" vs "${title}" -> ${sim1}`);
+
+                    // Special case for movies with subtitles like ": Gold" or "Film: Gold"
+                    // If the main title is present and the subtitle matches, keep it.
+                    let isSpecialMatch = false;
+                    const cTitleNorm = c.title.toLowerCase();
+                    if (title.includes(':')) {
+                        const parts = title.split(':');
+                        const sub = parts[parts.length - 1].trim().toLowerCase();
+                        if (sub.length > 2 && cTitleNorm.includes(sub)) {
+                             // Check if at least some part of the main title is also present
+                             const main = parts[0].trim().toLowerCase().replace('film', '').replace('movie', '').trim();
+                             if (main.length > 3 && cTitleNorm.includes(main)) {
+                                 isSpecialMatch = true;
+                             } else if (main.length <= 3) {
+                                 isSpecialMatch = true;
+                             }
+                        }
+                    }
+                    
+                    // Check if CANDIDATE has colon and input title matches the subtitle
+                    // Handles "One Piece Movie 13: Gold" vs "One Piece Gold"
+                    if (!isSpecialMatch && cTitleNorm.includes(':')) {
+                        const parts = cTitleNorm.split(':');
+                        const sub = parts[parts.length - 1].trim();
+                        const tNorm = title.toLowerCase();
+                        const oNorm = originalTitle ? originalTitle.toLowerCase() : "";
+                        
+                        // Check if subtitle is present in input title
+            if (sub.length > 2 && (tNorm.includes(sub) || oNorm.includes(sub))) {
+                 const main = parts[0].trim().replace(/movie/g, '').replace(/film/g, '').trim();
+                 // Check similarity of main part against input title
+                 const simMain = checkSimilarity(main, title) || checkSimilarity(main, originalTitle);
+                 
+                 if (simMain) {
+                     isSpecialMatch = true;
+                 }
+            }
+                    }
+
+                    if (isSimilar || isSpecialMatch) {
+                        console.log(`[AnimeWorld] Keeping "${c.title}" despite missing date (Similarity/Special Match)`);
+                        return true;
+                    }
+                }
+
                 // Strict check: if we are filtering by year, we expect a date.
                 // If enrichment failed, we discard to avoid false positives (e.g. One Piece 1999 vs 2023).
                 console.log(`[AnimeWorld] Filtered out "${c.title}" (no date)`);
@@ -153,6 +236,12 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
             if (!keep) console.log(`[AnimeWorld] Filtered out "${c.title}" (${cYear}) vs Meta (${metaYear})`);
             return keep;
         });
+        
+        // If we found strict matches (with date), use them.
+        // BUT if we only have matches without date (kept by similarity), use those.
+        // The problem is if we have BOTH, we might prefer the ones with date if they are good,
+        // but if the similarity ones are BETTER, we should maybe keep them?
+        // Current logic: yearFiltered contains both types.
         
         if (yearFiltered.length > 0) {
             candidates = yearFiltered;
@@ -251,10 +340,14 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
         if (normTitle.includes(':')) {
             const parts = normTitle.split(':');
             const subtitle = parts[parts.length - 1].trim();
-            if (subtitle.length > 3) {
+            if (subtitle.length > 2) { // Relaxed from 3 to 2 for "Z"
                      // Try finding the full subtitle
                      let subMatch = candidates.find(c => {
                          const t = (c.title || "").toLowerCase();
+                         // Exact match for short subtitles to avoid false positives
+                         if (subtitle.length <= 3) {
+                            return t.endsWith(` ${subtitle}`) || t.includes(`: ${subtitle}`) || t.includes(` ${subtitle} `);
+                         }
                          return t.includes(subtitle);
                      });
                      
@@ -269,7 +362,12 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
                          }
                      }
                      
-                     if (subMatch) return subMatch;
+                     if (subMatch) {
+                         // Verify with similarity check to be safe
+                         if (checkSimilarity(subMatch.title, title) || checkSimilarity(subMatch.title, originalTitle)) {
+                             return subMatch;
+                         }
+                     }
                 }
         }
         
@@ -293,7 +391,9 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
                 
                 let matches = 0;
                 for (const w of words) {
-                    if (cWords.includes(w) || cTitle.includes(w)) matches++;
+                    // Check whole word match first, then partial
+                    if (cWords.includes(w)) matches += 1;
+                    else if (cTitle.includes(w)) matches += 0.5;
                 }
                 
                 // Bonus for "Movie" or "Film" in title if query had it? No, stripped it.
@@ -307,8 +407,17 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
             }
             
             // Threshold: At least 75% of words matched
-            if (bestCandidate && maxMatches >= words.length * 0.75) {
-                 return bestCandidate;
+            // Relaxed threshold for movies if we have a strong partial match
+            if (bestCandidate) {
+                 const required = words.length * 0.75;
+                 if (maxMatches >= required) return bestCandidate;
+
+                 // Fallback: If title contains ALL significant words from query (in any order)
+                 const allWordsFound = words.every(w => {
+                     const cTitle = (bestCandidate.title || "").toLowerCase();
+                     return cTitle.includes(w);
+                 });
+                 if (allWordsFound) return bestCandidate;
             }
         }
     }
@@ -334,7 +443,12 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
         const numberMatch = candidates.find(c => {
             const t = (c.title || "").toLowerCase();
             const regex = new RegExp(`\\b${seasonStr}$|\\b${seasonStr}\\b|season ${seasonStr}|stagione ${seasonStr}`, 'i');
-            return regex.test(t);
+            if (regex.test(t)) {
+                // Additional check: Make sure the base title matches too!
+                // e.g. "One Piece 2" should match "One Piece" but not "Two Piece 2"
+                return checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle);
+            }
+            return false;
         });
         if (numberMatch) return numberMatch;
 
@@ -345,7 +459,11 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
             const romanMatch = candidates.find(c => {
                 const t = (c.title || "").toLowerCase();
                 const regex = new RegExp(`\\b${romanStr}$|\\b${romanStr}\\b`, 'i');
-                return regex.test(t);
+                if (regex.test(t)) {
+                     // Additional check: Make sure the base title matches too!
+                     return checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle);
+                }
+                return false;
             });
             if (romanMatch) return romanMatch;
         }
@@ -391,7 +509,18 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
         return null; // No relevant match found
     }
 
-    return candidates[0];
+    // Fallback for season > 1:
+    // If we didn't find a numbered match, try to find ANY candidate that matches the title
+    // This handles cases where the season number is missing or different format
+    const fallbackMatch = candidates.find(c => {
+         return checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle);
+    });
+    
+    if (fallbackMatch) {
+         return fallbackMatch;
+    }
+
+    return null;
 }
 
 async function searchAnime(query) {
@@ -574,9 +703,9 @@ async function fetchTooltipDate(tooltipUrl) {
     }
 }
 
-async function getStreams(id, type, season, episode) {
+async function getStreams(id, type, season, episode, providedMetadata = null) {
     try {
-        const metadata = await getMetadata(id, type);
+        const metadata = providedMetadata || await getMetadata(id, type);
         if (!metadata) {
             console.error("[AnimeWorld] Metadata not found for", id);
             return [];
@@ -686,51 +815,76 @@ async function getStreams(id, type, season, episode) {
         if (isMovie) {
               const variantCandidates = [];
               
-              // 0. Replace " - " with ": " (Common issue with TMDB titles like "One Piece Film - Red")
+              // 0. Detect separators
+              let parts = [];
               if (title.includes(' - ')) {
-                  const colonTitle = title.replace(' - ', ': ');
-                  console.log(`[AnimeWorld] Colon search: ${colonTitle}`);
-                  const colonRes = await searchAnime(colonTitle);
-                  if (colonRes && colonRes.length > 0) variantCandidates.push(...colonRes);
+                  parts = title.split(' - ');
+              } else if (title.includes(':')) {
+                  parts = title.split(':');
               }
 
-              // 1. Subtitle Search (if colon exists)
-             if (title.includes(':')) {
-                 const parts = title.split(':');
-                 if (parts.length > 1) {
-                     const subtitle = parts[parts.length - 1].trim();
-                     if (subtitle.length > 3) {
-                         console.log(`[AnimeWorld] Movie subtitle search: ${subtitle}`);
-                         const subRes = await searchAnime(subtitle);
-                         if (subRes && subRes.length > 0) variantCandidates.push(...subRes);
-                         
-                         // If subtitle contains "Part X", try searching without it
-                         if (/part\s*\d+/i.test(subtitle)) {
-                             const simpleSubtitle = subtitle.replace(/part\s*\d+/i, "").trim();
-                             if (simpleSubtitle.length > 3) {
-                                 console.log(`[AnimeWorld] Simplified subtitle search: ${simpleSubtitle}`);
-                                 const simpleRes = await searchAnime(simpleSubtitle);
-                                 if (simpleRes && simpleRes.length > 0) variantCandidates.push(...simpleRes);
-                             }
-                         }
-                     }
-                     
-                     // Search "MainTitle Movie"
-                     const mainTitle = parts[0].trim();
-                     const movieQuery = `${mainTitle} Movie`;
-                     console.log(`[AnimeWorld] Movie query search: ${movieQuery}`);
-                     const movieRes = await searchAnime(movieQuery);
-                     if (movieRes && movieRes.length > 0) variantCandidates.push(...movieRes);
-                 }
-             } else {
-                  // 2. Try appending "Movie" or "Film" if not present
+              if (parts.length > 1) {
+                   const mainTitle = parts[0].trim();
+                   const subtitle = parts[parts.length - 1].trim();
+
+                   // 1. Main Title Search (often the most effective)
+                   if (mainTitle.length > 3) {
+                       console.log(`[AnimeWorld] Main title search: ${mainTitle}`);
+                       const mainRes = await searchAnime(mainTitle);
+                       if (mainRes && mainRes.length > 0) variantCandidates.push(...mainRes);
+                   }
+
+                   // 2. Subtitle Search
+                   if (subtitle.length > 3) {
+                       console.log(`[AnimeWorld] Movie subtitle search: ${subtitle}`);
+                       const subRes = await searchAnime(subtitle);
+                       if (subRes && subRes.length > 0) variantCandidates.push(...subRes);
+                       
+                       // If subtitle contains "Part X", try searching without it
+                       if (/part\s*\d+/i.test(subtitle)) {
+                           const simpleSubtitle = subtitle.replace(/part\s*\d+/i, "").trim();
+                           if (simpleSubtitle.length > 3) {
+                               console.log(`[AnimeWorld] Simplified subtitle search: ${simpleSubtitle}`);
+                               const simpleRes = await searchAnime(simpleSubtitle);
+                               if (simpleRes && simpleRes.length > 0) variantCandidates.push(...simpleRes);
+                           }
+                       }
+                   }
+                   
+                   // 3. "MainTitle Movie" Search
+                   const movieQuery = `${mainTitle} Movie`;
+                   console.log(`[AnimeWorld] Movie query search: ${movieQuery}`);
+                   const movieRes = await searchAnime(movieQuery);
+                   if (movieRes && movieRes.length > 0) variantCandidates.push(...movieRes);
+
+                   // 4. "MainTitle Film" Search
+                   const filmQuery = `${mainTitle} Film`;
+                   console.log(`[AnimeWorld] Film query search: ${filmQuery}`);
+                   const filmRes = await searchAnime(filmQuery);
+                   if (filmRes && filmRes.length > 0) variantCandidates.push(...filmRes);
+
+                   // 5. Colon search fallback (if it was " - ")
+                   if (title.includes(' - ')) {
+                        const colonTitle = title.replace(' - ', ': ');
+                        console.log(`[AnimeWorld] Colon search: ${colonTitle}`);
+                        const colonRes = await searchAnime(colonTitle);
+                        if (colonRes && colonRes.length > 0) variantCandidates.push(...colonRes);
+                   }
+              } else {
+                  // No separator, try appending keywords
                   if (!title.toLowerCase().includes('movie')) {
                       const movieQuery = `${title} Movie`;
                       console.log(`[AnimeWorld] Movie query search: ${movieQuery}`);
                       const movieRes = await searchAnime(movieQuery);
                       if (movieRes && movieRes.length > 0) variantCandidates.push(...movieRes);
                   }
-             }
+                  if (!title.toLowerCase().includes('film')) {
+                      const filmQuery = `${title} Film`;
+                      console.log(`[AnimeWorld] Film query search: ${filmQuery}`);
+                      const filmRes = await searchAnime(filmQuery);
+                      if (filmRes && filmRes.length > 0) variantCandidates.push(...filmRes);
+                  }
+              }
              
              // Add variants to main candidates
              if (variantCandidates.length > 0) {
@@ -742,13 +896,16 @@ async function getStreams(id, type, season, episode) {
         }
 
         // Strategy 3: Original Title Search
-        if ((!candidates || candidates.length === 0) && originalTitle && originalTitle !== title) {
+        // For movies, always try original title as it might be more accurate (e.g. "One Piece Film: Gold")
+        const shouldSearchOriginal = ((!candidates || candidates.length === 0) || isMovie) && originalTitle && originalTitle !== title;
+        
+        if (shouldSearchOriginal) {
             console.log(`[AnimeWorld] Trying original title: ${originalTitle}`);
-            candidates = await searchAnime(originalTitle);
+            const res = await searchAnime(originalTitle);
             
             // Check relevance
-            if (candidates.length > 0) {
-                const valid = candidates.some(c => {
+            if (res && res.length > 0) {
+                const valid = res.some(c => {
                     if (checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle)) return true;
                     if (metadata.alternatives) {
                         return metadata.alternatives.some(alt => checkSimilarity(c.title, alt.title));
@@ -756,11 +913,69 @@ async function getStreams(id, type, season, episode) {
                     return false;
                 });
                 
-                if (!valid) {
+                if (valid) {
+                    candidates = [...candidates, ...res];
+                    // Remove duplicates
+                    candidates = candidates.filter((v, i, a) => a.findIndex(t => (t.href === v.href)) === i);
+                } else {
                     console.log("[AnimeWorld] Original title search results seem irrelevant. Discarding.");
-                    candidates = [];
                 }
             }
+        }
+
+        // Strategy 3.5: Sanitized Original Title Search (Split by colon/Film/Movie)
+        // If we still have no candidates (or existing ones are weak), try variations of original title
+        // This handles cases like "One Piece Film: Gold" where "One Piece Film" works but full title fails
+        // We allow this for movies even if candidates exist, because initial search might return irrelevant stuff
+        const shouldSearchSanitized = ((!candidates || candidates.length === 0) || isMovie) && originalTitle;
+        
+        if (shouldSearchSanitized) {
+             let sanitizedQueries = [];
+             
+             // 1. Split by colon
+             if (originalTitle.includes(':')) {
+                 const parts = originalTitle.split(':');
+                 if (parts[0].trim().length > 3) {
+                     sanitizedQueries.push(parts[0].trim());
+                 }
+             }
+             
+             // 2. Split by "Film" or "Movie" (case insensitive)
+             const lowerOrg = originalTitle.toLowerCase();
+             if (lowerOrg.includes('film')) {
+                 const idx = lowerOrg.indexOf('film');
+                 const query = originalTitle.substring(0, idx + 4).trim();
+                 if (query.length > 3 && query !== originalTitle) sanitizedQueries.push(query);
+             }
+             if (lowerOrg.includes('movie')) {
+                 const idx = lowerOrg.indexOf('movie');
+                 const query = originalTitle.substring(0, idx + 5).trim();
+                 if (query.length > 3 && query !== originalTitle) sanitizedQueries.push(query);
+             }
+
+             // Deduplicate queries
+             sanitizedQueries = [...new Set(sanitizedQueries)];
+             
+             for (const q of sanitizedQueries) {
+                 console.log(`[AnimeWorld] Trying sanitized original title: ${q}`);
+                 const res = await searchAnime(q);
+                 
+                 if (res && res.length > 0) {
+                      // Filter relevant results to avoid polluting candidates with completely unrelated stuff
+                      const validRes = res.filter(c => {
+                          return checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle);
+                      });
+                      
+                      if (validRes.length > 0) {
+                          console.log(`[AnimeWorld] Found ${validRes.length} valid candidates from sanitized search.`);
+                          candidates = [...candidates, ...validRes];
+                      }
+                 }
+             }
+             // Remove duplicates
+             if (candidates.length > 0) {
+                 candidates = candidates.filter((v, i, a) => a.findIndex(t => (t.href === v.href)) === i);
+             }
         }
 
         // Strategy 4: Alternative Titles Search
@@ -810,9 +1025,39 @@ async function getStreams(id, type, season, episode) {
 
         // Helper to enrich top candidates with year if needed
         const enrichTopCandidates = async (list) => {
-            // Only process top 3 candidates to avoid too many requests
-            const top = list.slice(0, 3);
-            for (const c of top) {
+            // Priority Enrichment Strategy:
+            // Instead of blindly picking the top 3, we prioritize candidates that are most likely to be the correct match.
+            // We use checkSimilarity to identify promising candidates.
+            
+            const candidatesToEnrich = [];
+            const processedHrefs = new Set();
+
+            // 1. Find high-similarity matches first
+            const promising = list.filter(c => {
+                // Skip if already processed (though here list is unique usually)
+                if (processedHrefs.has(c.href)) return false;
+                
+                const isSim = checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle);
+                if (isSim) {
+                    processedHrefs.add(c.href);
+                    return true;
+                }
+                return false;
+            });
+
+            // 2. Add top 3 from the original list (if not already included)
+            // This acts as a fallback if similarity check is too strict or fails
+            const originalTop = list.slice(0, 3).filter(c => {
+                if (processedHrefs.has(c.href)) return false;
+                processedHrefs.add(c.href);
+                return true;
+            });
+
+            // Combine: Promising ones first, then original top ones
+            // Limit total requests to avoid performance issues (e.g. max 6 requests)
+            const combined = [...promising, ...originalTop].slice(0, 6);
+
+            for (const c of combined) {
                 if (!c.date && c.tooltipUrl) {
                     const year = await fetchTooltipDate(c.tooltipUrl);
                     if (year) {
@@ -823,7 +1068,7 @@ async function getStreams(id, type, season, episode) {
                     }
                 }
             }
-            return top;
+            return combined;
         };
         
         // Enrich candidates before finding best match
@@ -997,5 +1242,7 @@ async function getStreams(id, type, season, episode) {
 module.exports = {
     getStreams,
     searchAnime,
-    getMetadata
+    getMetadata,
+    findBestMatch,
+    checkSimilarity
 };
