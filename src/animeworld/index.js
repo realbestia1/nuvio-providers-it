@@ -1234,9 +1234,11 @@ async function getStreams(id, type, season, episode, providedMetadata = null) {
                         const absEpisode = calculateAbsoluteEpisode(metadata, season, episode);
                         console.log(`[AnimeWorld] Prioritizing absolute episode: ${absEpisode} for "${match.title}"`);
                         targetEp = episodes.find(e => e.num == absEpisode);
-                    }
-                    
-                    if (!targetEp) {
+                        
+                        if (!targetEp) {
+                            console.log(`[AnimeWorld] Absolute episode ${absEpisode} not found in list. Available range: ${episodes.length > 0 ? episodes[0].num + '-' + episodes[episodes.length-1].num : 'None'}`);
+                        }
+                    } else {
                         targetEp = episodes.find(e => e.num == episode);
                     }
                 }
@@ -1294,9 +1296,12 @@ async function getStreams(id, type, season, episode, providedMetadata = null) {
                             
                             // Avoid duplicating (ITA) if already in title
                             let displayTitle = match.title;
-                            if (episode) {
+                            if (targetEp && targetEp.num) {
+                                displayTitle += ` - Ep ${targetEp.num}`;
+                            } else if (episode) {
                                 displayTitle += ` - Ep ${episode}`;
                             }
+                            
                             if (isDub && !displayTitle.includes("(ITA)")) displayTitle += " (ITA)";
                             if (!isDub && !displayTitle.includes("(SUB ITA)")) displayTitle += " (SUB ITA)";
 
