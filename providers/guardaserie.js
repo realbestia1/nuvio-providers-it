@@ -590,29 +590,77 @@ function getStreams(id, type, season, episode) {
         }
       });
       const searchHtml = yield searchResponse.text();
-      const resultRegex = /<div class="mlnh-2">\s*<h2>\s*<a href="([^"]+)" title="([^"]+)">/g;
+      const resultRegex = /<div class="mlnh-2">\s*<h2>\s*<a href="([^"]+)" title="([^"]+)">[\s\S]*?<\/div>\s*<div class="mlnh-3 hdn">([^<]*)<\/div>/g;
       let match;
       let showUrl = null;
+      const metaYear = year ? parseInt(year) : null;
+      const candidates = [];
       while ((match = resultRegex.exec(searchHtml)) !== null) {
         const foundUrl = match[1];
         const foundTitle = match[2];
+        const foundYearStr = match[3];
         if (foundTitle.toLowerCase().includes(title.toLowerCase())) {
-          showUrl = foundUrl;
-          break;
+          candidates.push({
+            url: foundUrl,
+            title: foundTitle,
+            year: foundYearStr
+          });
         }
       }
-      if (!showUrl) {
+      let showHtml = null;
+      for (const candidate of candidates) {
+        let matchesYear = true;
+        if (metaYear) {
+          const yearMatch = candidate.year.match(/(\d{4})/);
+          if (yearMatch) {
+            const foundYear = parseInt(yearMatch[1]);
+            if (Math.abs(foundYear - metaYear) > 2) {
+              matchesYear = false;
+            }
+          }
+        }
+        if (matchesYear) {
+          console.log(`[Guardaserie] Verifying candidate: ${candidate.title} (${candidate.year})`);
+          try {
+            const candidateRes = yield fetch(candidate.url, {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": BASE_URL
+              }
+            });
+            if (!candidateRes.ok) continue;
+            const candidateHtml = yield candidateRes.text();
+            if (id.toString().startsWith("tt")) {
+              const imdbMatches = candidateHtml.match(/tt\d{7,8}/g);
+              if (imdbMatches && imdbMatches.length > 0) {
+                const targetId = id.toString();
+                const hasTarget = imdbMatches.includes(targetId);
+                const otherIds = imdbMatches.filter((m) => m !== targetId);
+                if (!hasTarget && otherIds.length > 0) {
+                  console.log(`[Guardaserie] Rejected ${candidate.url} due to IMDb mismatch. Found: ${otherIds.join(", ")}`);
+                  continue;
+                }
+                if (hasTarget) {
+                  console.log(`[Guardaserie] Verified ${candidate.url} with IMDb match.`);
+                }
+              }
+            }
+            showUrl = candidate.url;
+            showHtml = candidateHtml;
+            break;
+          } catch (e) {
+            console.error(`[Guardaserie] Error verifying candidate ${candidate.url}:`, e);
+          }
+        }
+      }
+      if (!showUrl && candidates.length > 0) {
+        console.log("[Guardaserie] No candidate matched criteria.");
+      }
+      if (!showUrl || !showHtml) {
         console.log("[Guardaserie] Show not found");
         return [];
       }
       console.log(`[Guardaserie] Found show URL: ${showUrl}`);
-      const showResponse = yield fetch(showUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Referer": BASE_URL
-        }
-      });
-      const showHtml = yield showResponse.text();
       const episodeStr = `${season}x${episode}`;
       const episodeRegex = new RegExp(`data-num="${episodeStr}"`, "i");
       const episodeMatch = episodeRegex.exec(showHtml);

@@ -754,6 +754,21 @@ function getStreams(id, type, season, episode, showInfo) {
               return;
             }
             const html = yield response.text();
+            if (id.toString().startsWith("tt")) {
+              const targetImdbId = id.toString();
+              const imdbMatches = html.match(/tt\d{7,8}/g);
+              if (imdbMatches && imdbMatches.length > 0) {
+                const hasTargetId = imdbMatches.includes(targetImdbId);
+                const otherIds = imdbMatches.filter((m) => m !== targetImdbId);
+                if (!hasTargetId && otherIds.length > 0) {
+                  console.log(`[EuroStreaming] Rejected candidate ${candidate.url} due to IMDB ID mismatch. Found: ${otherIds.join(", ")}`);
+                  return;
+                }
+                if (hasTargetId) {
+                  console.log(`[EuroStreaming] Verified candidate ${candidate.url} with IMDB ID match.`);
+                }
+              }
+            }
             const episodeStr1 = `${season}x${episode}`;
             const episodeStr2 = `${season}x${episode.toString().padStart(2, "0")}`;
             const episodeRegex = new RegExp(`data-num="(${episodeStr1}|${episodeStr2})"`, "i");
