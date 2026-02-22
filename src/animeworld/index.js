@@ -162,6 +162,29 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
         }
     }
 
+    // Filter out Movies/Specials if looking for a TV Series (Season 1)
+    if (isTv && season === 1) {
+        candidates = candidates.filter(c => {
+            const t = (c.title || "").toLowerCase();
+            
+            // If the searched title implies a movie/special, don't filter
+            if (normTitle.includes("movie") || normTitle.includes("film") || normTitle.includes("special") || normTitle.includes("oav") || normTitle.includes("ova")) return true;
+            
+            // If the candidate title implies a movie/special, discard it
+            // Use regex to match whole words to avoid false positives (e.g. "Special" inside "Specialist")
+            if (/\b(movie|film|special|oav|ova)\b/i.test(t)) {
+                 console.log(`[AnimeWorld] Filtered out "${c.title}" (Movie/Special type mismatch)`);
+                 return false;
+            }
+            return true;
+        });
+        
+        if (candidates.length === 0) {
+            console.log("[AnimeWorld] All candidates filtered out by Type check (Movie/Special)");
+            return null;
+        }
+    }
+
     // Check if we lost all exact matches due to year filtering
     if (preYearExactMatches.length > 0) {
          const anyExactMatchSurvived = candidates.some(c => 

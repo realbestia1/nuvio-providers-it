@@ -72,9 +72,21 @@ function getMetadata(id, type) {
           imdb_id = extData.imdb_id;
         }
       }
+      let alternatives = [];
+      try {
+        const altUrl = `https://api.themoviedb.org/3/${normalizedType === "movie" ? "movie" : "tv"}/${tmdbId}/alternative_titles?api_key=${TMDB_API_KEY}`;
+        const altResponse = yield fetch(altUrl);
+        if (altResponse.ok) {
+          const altData = yield altResponse.json();
+          alternatives = altData.titles || altData.results || [];
+        }
+      } catch (e) {
+        console.error("[AnimeWorld] Alt titles fetch error:", e);
+      }
       return __spreadProps(__spreadValues({}, details), {
         imdb_id,
-        tmdb_id: tmdbId
+        tmdb_id: tmdbId,
+        alternatives
       });
     } catch (e) {
       console.error("[AnimeWorld] Metadata error:", e);
@@ -129,17 +141,39 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
   const metaYear = metadata.first_air_date ? parseInt(metadata.first_air_date.substring(0, 4)) : metadata.release_date ? parseInt(metadata.release_date.substring(0, 4)) : null;
   const preYearExactMatches = candidates.filter((c) => {
     const t = (c.title || "").toLowerCase().trim();
-    return t === normTitle || normOriginal && t === normOriginal;
+    const tClean = t.replace(/\s*\(ita\)$/i, "").trim();
+    return t === normTitle || tClean === normTitle || normOriginal && (t === normOriginal || tClean === normOriginal);
   });
   if (metaYear && (season === 1 || !isTv)) {
     const yearFiltered = candidates.filter((c) => {
-      if (!c.date) return true;
+      if (!c.date) {
+        console.log(`[AnimeWorld] Filtered out "${c.title}" (no date)`);
+        return false;
+      }
       const cYear = parseInt(c.date);
-      return Math.abs(cYear - metaYear) <= 2;
+      const diff = Math.abs(cYear - metaYear);
+      const keep = diff <= 2;
+      if (!keep) console.log(`[AnimeWorld] Filtered out "${c.title}" (${cYear}) vs Meta (${metaYear})`);
+      return keep;
     });
     if (yearFiltered.length > 0) {
       candidates = yearFiltered;
     } else if (candidates.length > 0) {
+      return null;
+    }
+  }
+  if (isTv && season === 1) {
+    candidates = candidates.filter((c) => {
+      const t = (c.title || "").toLowerCase();
+      if (normTitle.includes("movie") || normTitle.includes("film") || normTitle.includes("special") || normTitle.includes("oav") || normTitle.includes("ova")) return true;
+      if (/\b(movie|film|special|oav|ova)\b/i.test(t)) {
+        console.log(`[AnimeWorld] Filtered out "${c.title}" (Movie/Special type mismatch)`);
+        return false;
+      }
+      return true;
+    });
+    if (candidates.length === 0) {
+      console.log("[AnimeWorld] All candidates filtered out by Type check (Movie/Special)");
       return null;
     }
   }
@@ -149,7 +183,6 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
       // Use href as ID
     );
     if (!anyExactMatchSurvived) {
-      console.log("[AnimeWorld] All exact matches rejected by year filter. Returning null to avoid mismatch.");
       return null;
     }
   }
@@ -270,10 +303,20 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
       const t = (c.title || "").trim();
       return !hasNumberSuffix(t);
     });
-    if (noNumberMatch) return noNumberMatch;
-    const first = sorted[0];
-    if (checkSimilarity(first.title, title) || checkSimilarity(first.title, originalTitle)) {
-      return first;
+    if (noNumberMatch) {
+      if (checkSimilarity(noNumberMatch.title, title) || checkSimilarity(noNumberMatch.title, originalTitle)) {
+        return noNumberMatch;
+      }
+    }
+    const anyMatch = sorted.find((c) => {
+      if (checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle)) return true;
+      if (metadata.alternatives) {
+        return metadata.alternatives.some((alt) => checkSimilarity(c.title, alt.title));
+      }
+      return false;
+    });
+    if (anyMatch) {
+      return anyMatch;
     }
     return null;
   }
@@ -300,6 +343,7 @@ function searchAnime(query) {
         return [];
       }
       const results = [];
+      const seenHrefs = /* @__PURE__ */ new Set();
       const filmListMatch = /<div class="film-list">([\s\S]*?)<div class="paging-wrapper"/i.exec(html);
       let searchContent = html;
       if (filmListMatch) {
@@ -332,6 +376,8 @@ function searchAnime(query) {
         const hrefMatch = /href="([^"]*)"/i.exec(nameTag);
         const href = hrefMatch ? hrefMatch[1] : null;
         if (!title || !href) continue;
+        if (seenHrefs.has(href)) continue;
+        seenHrefs.add(href);
         const imgMatch = /<img[^>]*src="([^"]*)"/i.exec(chunk);
         const image = imgMatch ? imgMatch[1] : null;
         const tooltipMatch = /data-tip="([^"]*)"/i.exec(chunk);
@@ -376,7 +422,7 @@ function fetchTooltipDate(tooltipUrl) {
       });
       if (!response.ok) return null;
       const html = yield response.text();
-      const dateMatch = /Data di uscita:[\s\S]*?<span>([\s\S]*?)<\/span>/i.exec(html);
+      const dateMatch = /Data di uscita:[\s\S]*?(?:<dd>|<span>)([\s\S]*?)(?:<\/dd>|<\/span>)/i.exec(html);
       if (dateMatch) {
         const dateStr = dateMatch[1].trim();
         const yearMatch = /(\d{4})/.exec(dateStr);
@@ -463,6 +509,13 @@ function getStreams(id, type, season, episode) {
       if (candidates.length === 0) {
         console.log(`[AnimeWorld] Standard search: ${title}`);
         candidates = yield searchAnime(title);
+        if (candidates.length > 0) {
+          const valid = candidates.some((c) => checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle));
+          if (!valid) {
+            console.log("[AnimeWorld] Standard search results seem irrelevant. Discarding.");
+            candidates = [];
+          }
+        }
       }
       if (isMovie) {
         const variantCandidates = [];
@@ -511,6 +564,41 @@ function getStreams(id, type, season, episode) {
       if ((!candidates || candidates.length === 0) && originalTitle && originalTitle !== title) {
         console.log(`[AnimeWorld] Trying original title: ${originalTitle}`);
         candidates = yield searchAnime(originalTitle);
+        if (candidates.length > 0) {
+          const valid = candidates.some((c) => {
+            if (checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle)) return true;
+            if (metadata.alternatives) {
+              return metadata.alternatives.some((alt) => checkSimilarity(c.title, alt.title));
+            }
+            return false;
+          });
+          if (!valid) {
+            console.log("[AnimeWorld] Original title search results seem irrelevant. Discarding.");
+            candidates = [];
+          }
+        }
+      }
+      if ((!candidates || candidates.length === 0) && metadata.alternatives) {
+        const altTitles = metadata.alternatives.map((t) => t.title).filter((t) => /^[a-zA-Z0-9\s\-\.\:\(\)]+$/.test(t)).filter((t) => t !== title && t !== originalTitle);
+        const uniqueAlts = [...new Set(altTitles)];
+        for (const altTitle of uniqueAlts) {
+          if (altTitle.length < 4) continue;
+          console.log(`[AnimeWorld] Trying alternative title: ${altTitle}`);
+          const res = yield searchAnime(altTitle);
+          if (res && res.length > 0) {
+            const valid = res.some((c) => {
+              if (checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle)) return true;
+              if (metadata.alternatives) {
+                return metadata.alternatives.some((alt) => checkSimilarity(c.title, alt.title));
+              }
+              return false;
+            });
+            if (valid) {
+              candidates = res;
+              break;
+            }
+          }
+        }
       }
       if (!candidates || candidates.length === 0) {
         console.log("[AnimeWorld] No anime found");
@@ -523,7 +611,12 @@ function getStreams(id, type, season, episode) {
         for (const c of top) {
           if (!c.date && c.tooltipUrl) {
             const year = yield fetchTooltipDate(c.tooltipUrl);
-            if (year) c.date = year;
+            if (year) {
+              c.date = year;
+              console.log(`[AnimeWorld] Enriched "${c.title}" with year: ${year}`);
+            } else {
+              console.log(`[AnimeWorld] Failed to enrich "${c.title}" (no year found)`);
+            }
           }
         }
         return top;
@@ -562,7 +655,14 @@ function getStreams(id, type, season, episode) {
               });
             }
           }
-          let targetEp = episodes.find((e) => e.num == episode);
+          let targetEp;
+          if (type === "movie") {
+            if (episodes.length > 0) {
+              targetEp = episodes[0];
+            }
+          } else {
+            targetEp = episodes.find((e) => e.num == episode);
+          }
           if (!targetEp && season > 1) {
             const absEpisode = calculateAbsoluteEpisode(metadata, season, episode);
             if (absEpisode != episode) {
@@ -598,7 +698,10 @@ function getStreams(id, type, season, episode) {
                 }
                 const baseName = isDub ? "AnimeWorld (ITA)" : "AnimeWorld (SUB ITA)";
                 const serverName = host ? `${baseName} - ${host}` : baseName;
-                let displayTitle = `${match.title} - Ep ${episode}`;
+                let displayTitle = match.title;
+                if (episode) {
+                  displayTitle += ` - Ep ${episode}`;
+                }
                 if (isDub && !displayTitle.includes("(ITA)")) displayTitle += " (ITA)";
                 if (!isDub && !displayTitle.includes("(SUB ITA)")) displayTitle += " (SUB ITA)";
                 results.push({
@@ -633,5 +736,6 @@ function getStreams(id, type, season, episode) {
 }
 module.exports = {
   getStreams,
-  searchAnime
+  searchAnime,
+  getMetadata
 };
