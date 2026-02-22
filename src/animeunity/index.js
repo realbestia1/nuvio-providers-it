@@ -740,9 +740,12 @@ async function getEpisodeStreams(anime, episodeNumber, langTag = "") {
             let quality = extractQuality(targetEpisode.link);
             if (quality === "Unknown") quality = extractQuality(targetEpisode.file_name);
             
+            // Ensure anime.title is not null/undefined
+            const displayTitle = (anime.title || anime.title_eng || "Unknown Title") + ` - Ep ${episodeNumber}${labelSuffix}`;
+
             streams.push({
                 name: "AnimeUnity" + labelSuffix,
-                title: `${anime.title} - Ep ${episodeNumber}${labelSuffix}`,
+                title: displayTitle,
                 url: targetEpisode.link,
                 quality: quality,
                 type: "direct",
@@ -770,10 +773,13 @@ async function getEpisodeStreams(anime, episodeNumber, langTag = "") {
                     if (embedUrl && embedUrl.startsWith("http")) {
                         const vixStreams = await extractVixCloud(embedUrl);
                         if (vixStreams && vixStreams.length > 0) {
+                            // Ensure anime.title is not null/undefined
+                            const displayTitle = (anime.title || anime.title_eng || "Unknown Title") + ` - Ep ${episodeNumber}${labelSuffix}`;
+                            
                             streams.push(...vixStreams.map(s => ({
                                 ...s,
                                 name: "AnimeUnity - VixCloud" + labelSuffix,
-                                title: `${anime.title} - Ep ${episodeNumber}${labelSuffix}`
+                                title: displayTitle
                             })));
                         }
                     }
