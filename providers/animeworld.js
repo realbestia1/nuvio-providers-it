@@ -584,7 +584,16 @@ function getStreams(id, type, season, episode) {
                 else if (infoData.grabber.includes("720p")) quality = "720p";
                 else if (infoData.grabber.includes("480p")) quality = "480p";
                 else if (infoData.grabber.includes("360p")) quality = "360p";
-                const serverName = isDub ? "AnimeWorld (ITA)" : "AnimeWorld (SUB ITA)";
+                let host = "";
+                try {
+                  const urlObj = new URL(infoData.grabber);
+                  host = urlObj.hostname.replace("www.", "");
+                  if (host.includes("sweetpixel")) host = "SweetPixel";
+                  else if (host.includes("stream")) host = "Stream";
+                } catch (e) {
+                }
+                const baseName = isDub ? "AnimeWorld (ITA)" : "AnimeWorld (SUB ITA)";
+                const serverName = host ? `${baseName} - ${host}` : baseName;
                 let displayTitle = `${match.title} - Ep ${episode}`;
                 if (isDub && !displayTitle.includes("(ITA)")) displayTitle += " (ITA)";
                 if (!isDub && !displayTitle.includes("(SUB ITA)")) displayTitle += " (SUB ITA)";

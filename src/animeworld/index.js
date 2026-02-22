@@ -797,11 +797,22 @@ async function getStreams(id, type, season, episode) {
                             // The 'server' field is often displayed as the stream name.
                             // If we just use "AnimeWorld (ITA)", it might be grouped under "AnimeWorld" in the UI.
                             // We should use a descriptive name.
-                            // Also, if infoData contains server name (e.g. "AnimeWorld Server", "Alternative"), we could use it.
-                            // But infoData usually just has 'grabber'.
+                            // infoData might contain 'server' or 'name' if available, but usually it's just grabber.
+                            // However, we can try to extract the host from the grabber URL to be more specific.
+                            // e.g. "AnimeWorld (ITA) - SweetPixel"
                             
+                            let host = "";
+                            try {
+                                const urlObj = new URL(infoData.grabber);
+                                host = urlObj.hostname.replace("www.", "");
+                                // Simplify host names
+                                if (host.includes("sweetpixel")) host = "SweetPixel";
+                                else if (host.includes("stream")) host = "Stream";
+                            } catch (e) {}
+
                             // Let's create distinct server names to ensure they appear correctly
-                            const serverName = isDub ? "AnimeWorld (ITA)" : "AnimeWorld (SUB ITA)";
+                            const baseName = isDub ? "AnimeWorld (ITA)" : "AnimeWorld (SUB ITA)";
+                            const serverName = host ? `${baseName} - ${host}` : baseName;
                             
                             // Avoid duplicating (ITA) if already in title
                             let displayTitle = `${match.title} - Ep ${episode}`;
