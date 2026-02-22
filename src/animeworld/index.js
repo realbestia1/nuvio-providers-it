@@ -817,10 +817,11 @@ async function getStreams(id, type, season, episode, providedMetadata = null) {
                      const res = await searchAnime(query);
                      if (res && res.length > 0) {
                          console.log(`[AnimeWorld] Found matches for season name: ${query}`);
-                         // Check if results are relevant
-                         const valid = res.some(c => checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle));
-                         if (valid) {
-                             candidates = res;
+                         // Filter results to ensure relevance
+                         const relevantRes = res.filter(c => checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle));
+                         
+                         if (relevantRes.length > 0) {
+                             candidates = relevantRes;
                              seasonNameMatch = true;
                              break;
                          }
@@ -832,10 +833,11 @@ async function getStreams(id, type, season, episode, providedMetadata = null) {
                  for (const query of searchQueries) {
                      const res = await searchAnime(query);
                      if (res && res.length > 0) {
-                         // Check if results are relevant
-                         const valid = res.some(c => checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle));
-                         if (valid) {
-                             candidates = res;
+                         // Filter results to ensure relevance
+                         const relevantRes = res.filter(c => checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle));
+                         
+                         if (relevantRes.length > 0) {
+                             candidates = relevantRes;
                              break;
                          }
                      }
@@ -1166,13 +1168,6 @@ async function getStreams(id, type, season, episode, providedMetadata = null) {
                 // But the attributes are on the <a> tag.
                 // Let's just find all <a> tags that have data-episode-num
                 
-                const aTagRegex = /<a[^>]+data-episode-num="([^"]+)"[^>]+data-id="([^"]+)"[^>]*>/g;
-                let epMatch;
-                
-                // Since attribute order is not guaranteed, we should use a more robust parsing
-                // But typically it's consistent. Let's assume standard order or try both.
-                // Or better: find all <a> tags with data-episode-num, then extract ID from them.
-                
                 const allATags = html.match(/<a[^>]+data-episode-num="[^"]+"[^>]*>/g) || [];
                 
                 for (const tag of allATags) {
@@ -1188,17 +1183,66 @@ async function getStreams(id, type, season, episode, providedMetadata = null) {
                 }
                 
                 let targetEp;
+                
+                // Determine if we should prioritize absolute episode
+                // Logic: If the match title is the generic series title (e.g. "One Piece"), 
+                // it likely contains all episodes in absolute numbering.
+                // If the match title is specific (e.g. "My Hero Academia II"), it likely uses relative numbering.
+                let prioritizeAbsolute = false;
+                if (season > 1 && type !== "movie") {
+                    const normMatch = (match.title || "").toLowerCase().replace(/\(ita\)/g, "").replace(/\(sub ita\)/g, "").trim();
+                    const normSeries = (title || "").toLowerCase().trim();
+                    
+                    // If titles are identical (or very close), assume generic page -> Absolute
+                    if (normMatch === normSeries) {
+                        prioritizeAbsolute = true;
+                    } else {
+                        // Check for containment (e.g. "One Piece - All'arrembaggio!" vs "One Piece")
+                        // But ensure we don't match "One Piece Movie" against "One Piece"
+                        const isSpecific = /\b(season|stagione)\b|\b(movie|film)\b|\b(special|oav|ova)\b/i.test(normMatch);
+                        
+                        // Also check for numeric suffixes which usually indicate season (e.g. "Title 2")
+                        // But be careful about "Title 2000" (year) or "Hunter x Hunter 2011"
+                        // If the number is small (< 20), it's likely a season.
+                        const endsWithNumber = /(\d+)$/.exec(normMatch);
+                        let isSeasonNumber = false;
+                        if (endsWithNumber) {
+                            const num = parseInt(endsWithNumber[1]);
+                            if (num < 1900) isSeasonNumber = true; 
+                        }
+
+                        if (!isSpecific && !isSeasonNumber) {
+                            if (normMatch.includes(normSeries) || normSeries.includes(normMatch)) {
+                                console.log(`[AnimeWorld] Fuzzy match for absolute check: "${normMatch}" vs "${normSeries}"`);
+                                prioritizeAbsolute = true;
+                            }
+                        }
+                    }
+                    
+                    // Also check if we calculated a valid absolute episode
+                    const absEpisode = calculateAbsoluteEpisode(metadata, season, episode);
+                    if (absEpisode == episode) prioritizeAbsolute = false;
+                }
+
                 if (type === "movie") {
                     // For movies, just take the first available episode/stream
                     if (episodes.length > 0) {
                         targetEp = episodes[0];
                     }
                 } else {
-                    targetEp = episodes.find(e => e.num == episode);
+                    if (prioritizeAbsolute) {
+                        const absEpisode = calculateAbsoluteEpisode(metadata, season, episode);
+                        console.log(`[AnimeWorld] Prioritizing absolute episode: ${absEpisode} for "${match.title}"`);
+                        targetEp = episodes.find(e => e.num == absEpisode);
+                    }
+                    
+                    if (!targetEp) {
+                        targetEp = episodes.find(e => e.num == episode);
+                    }
                 }
                 
-                // Fallback to absolute episode if not found and season > 1
-                if (!targetEp && season > 1) {
+                // Fallback to absolute episode if not found and season > 1 (and not already prioritized/tried)
+                if (!targetEp && season > 1 && !prioritizeAbsolute) {
                     const absEpisode = calculateAbsoluteEpisode(metadata, season, episode);
                     if (absEpisode != episode) {
                         console.log(`[AnimeWorld] Relative episode ${episode} not found, trying absolute: ${absEpisode}`);
