@@ -146,8 +146,10 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
     const preYearExactMatches = filteredCandidates.filter(c => {
         const t = (c.title || "").toLowerCase().trim();
         const te = (c.title_eng || "").toLowerCase().trim();
-        return t === normTitle || te === normTitle || 
-               (normOriginal && (t === normOriginal || te === normOriginal));
+        const tClean = t.replace(/\s*\(ita\)$/i, "").trim();
+        const teClean = te.replace(/\s*\(ita\)$/i, "").trim();
+        return t === normTitle || te === normTitle || tClean === normTitle || teClean === normTitle ||
+               (normOriginal && (t === normOriginal || te === normOriginal || tClean === normOriginal || teClean === normOriginal));
     });
 
     // Filter by Year if available (only for Season 1 or Movies)
@@ -179,7 +181,7 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
              preYearExactMatches.some(pym => pym.id === c.id)
          );
          if (!anyExactMatchSurvived) {
-             console.log("[AnimeUnity] All exact matches rejected by year filter. Returning null to avoid mismatch.");
+             // console.log("[AnimeUnity] All exact matches rejected by year filter. Returning null to avoid mismatch.");
              return null;
          }
     }

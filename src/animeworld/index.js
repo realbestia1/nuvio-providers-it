@@ -135,7 +135,8 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
     // Check for exact matches BEFORE year filtering
     const preYearExactMatches = candidates.filter(c => {
         const t = (c.title || "").toLowerCase().trim();
-        return t === normTitle || (normOriginal && t === normOriginal);
+        const tClean = t.replace(/\s*\(ita\)$/i, "").trim();
+        return t === normTitle || tClean === normTitle || (normOriginal && (t === normOriginal || tClean === normOriginal));
     });
 
     if (metaYear && (season === 1 || !isTv)) {
@@ -149,7 +150,6 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
             candidates = yearFiltered;
         } else if (candidates.length > 0) {
              // If strictly filtered out, return null to avoid bad match
-             // But only if we are strict? AnimeUnity returns null here.
              return null;
         }
     }
@@ -160,7 +160,7 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
              preYearExactMatches.some(pym => pym.href === c.href) // Use href as ID
          );
          if (!anyExactMatchSurvived) {
-             console.log("[AnimeWorld] All exact matches rejected by year filter. Returning null to avoid mismatch.");
+             // console.log("[AnimeWorld] All exact matches rejected by year filter. Returning null to avoid mismatch.");
              return null;
          }
     }
@@ -390,6 +390,7 @@ async function searchAnime(query) {
         }
 
         const results = [];
+        const seenHrefs = new Set();
 
         // Extract the content inside film-list to avoid matching sidebar items
         const filmListMatch = /<div class="film-list">([\s\S]*?)<div class="paging-wrapper"/i.exec(html);
@@ -459,6 +460,10 @@ async function searchAnime(query) {
             const href = hrefMatch ? hrefMatch[1] : null;
 
             if (!title || !href) continue;
+
+            // Deduplicate by href
+            if (seenHrefs.has(href)) continue;
+            seenHrefs.add(href);
 
             // Extract Image
             const imgMatch = /<img[^>]*src="([^"]*)"/i.exec(chunk);
@@ -779,7 +784,12 @@ async function getStreams(id, type, season, episode) {
             for (const c of top) {
                 if (!c.date && c.tooltipUrl) {
                     const year = await fetchTooltipDate(c.tooltipUrl);
-                    if (year) c.date = year;
+                    if (year) {
+                        c.date = year;
+                        console.log(`[AnimeWorld] Enriched "${c.title}" with year: ${year}`);
+                    } else {
+                        console.log(`[AnimeWorld] Failed to enrich "${c.title}" (no year found)`);
+                    }
                 }
             }
             return top;
