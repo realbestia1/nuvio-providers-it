@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  stremio-addon:
+    build: .
+    container_name: nuvio-stremio-addon
+    ports:
+      - "7000:7000"
+    environment:
+      - PORT=7000
+      - NODE_ENV=production
+    restart: unless-stopped
+    # Optional: Mount source code for development (uncomment if needed)
+    # volumes:
+    #   - ./src:/app/src
+    #   - ./stremio_addon.js:/app/stremio_addon.js

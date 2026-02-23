@@ -1,10 +1,11 @@
 {
   "name": "nuvio-providers-it",
-  "version": "1.0.0",
+  "version": "1.0.30",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start-addon": "node stremio_addon.js"
   },
   "keywords": [],
   "author": "",
@@ -14,6 +15,8 @@
     "cheerio": "^1.2.0",
     "crypto-js": "^4.2.0",
     "esbuild": "^0.27.3",
-    "node-fetch": "^2.7.0"
+    "express": "^5.2.1",
+    "node-fetch": "^2.7.0",
+    "stremio-addon-sdk": "^1.6.10"
   }
 }
