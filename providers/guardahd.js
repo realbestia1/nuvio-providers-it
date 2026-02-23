@@ -518,29 +518,53 @@ var require_tmdb_helper = __commonJS({
           const detailsData = yield detailsResponse.json();
           if (detailsData && detailsData.data && detailsData.data.attributes) {
             const attributes = detailsData.data.attributes;
-            const title = attributes.titles.en || attributes.titles.en_jp || attributes.canonicalTitle;
+            const titlesToTry = /* @__PURE__ */ new Set();
+            if (attributes.titles.en) titlesToTry.add(attributes.titles.en);
+            if (attributes.titles.en_jp) titlesToTry.add(attributes.titles.en_jp);
+            if (attributes.canonicalTitle) titlesToTry.add(attributes.canonicalTitle);
+            if (attributes.titles.ja_jp) titlesToTry.add(attributes.titles.ja_jp);
+            const titleList = Array.from(titlesToTry);
             const year = attributes.startDate ? attributes.startDate.substring(0, 4) : null;
             const subtype = attributes.subtype;
             if (!tmdbId) {
               const type = subtype === "movie" ? "movie" : "tv";
-              if (title) {
-                const searchUrl = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(title)}&api_key=${TMDB_API_KEY2}`;
-                const searchResponse = yield fetch(searchUrl);
-                const searchData = yield searchResponse.json();
+              for (const title2 of titleList) {
+                if (tmdbId) break;
+                if (!title2) continue;
+                let searchData = { results: [] };
+                if (year) {
+                  let yearParam = "";
+                  if (type === "movie") yearParam = `&primary_release_year=${year}`;
+                  else yearParam = `&first_air_date_year=${year}`;
+                  const searchUrlYear = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(title2)}&api_key=${TMDB_API_KEY2}${yearParam}`;
+                  const res = yield fetch(searchUrlYear);
+                  const data = yield res.json();
+                  if (data.results && data.results.length > 0) {
+                    searchData = data;
+                  }
+                }
+                if (!searchData.results || searchData.results.length === 0) {
+                  const searchUrl = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(title2)}&api_key=${TMDB_API_KEY2}`;
+                  const searchResponse = yield fetch(searchUrl);
+                  searchData = yield searchResponse.json();
+                }
                 if (searchData.results && searchData.results.length > 0) {
                   if (year) {
                     const match = searchData.results.find((r) => {
                       const date = type === "movie" ? r.release_date : r.first_air_date;
                       return date && date.startsWith(year);
                     });
-                    if (match) tmdbId = match.id;
-                    else tmdbId = searchData.results[0].id;
+                    if (match) {
+                      tmdbId = match.id;
+                    } else {
+                      tmdbId = searchData.results[0].id;
+                    }
                   } else {
                     tmdbId = searchData.results[0].id;
                   }
                 } else if (subtype !== "movie") {
-                  const cleanTitle = title.replace(/\s(\d+)$/, "").replace(/\sSeason\s\d+$/i, "");
-                  if (cleanTitle !== title) {
+                  const cleanTitle = title2.replace(/\s(\d+)$/, "").replace(/\sSeason\s\d+$/i, "");
+                  if (cleanTitle !== title2) {
                     const cleanSearchUrl = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(cleanTitle)}&api_key=${TMDB_API_KEY2}`;
                     const cleanSearchResponse = yield fetch(cleanSearchUrl);
                     const cleanSearchData = yield cleanSearchResponse.json();
@@ -551,6 +575,7 @@ var require_tmdb_helper = __commonJS({
                 }
               }
             }
+            const title = attributes.titles.en || attributes.titles.en_jp || attributes.canonicalTitle;
             if (tmdbId && subtype !== "movie") {
               const seasonMatch = title.match(/Season\s*(\d+)/i) || title.match(/(\d+)(?:st|nd|rd|th)\s*Season/i);
               if (seasonMatch) {

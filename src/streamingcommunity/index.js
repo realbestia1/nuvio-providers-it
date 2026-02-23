@@ -1,6 +1,4 @@
 
-const { getTmdbFromKitsu } = require('../tmdb_helper.js');
-
 const BASE_URL = "https://vixsrc.to";
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
@@ -92,21 +90,6 @@ async function getStreams(id, type, season, episode) {
     const normalizedType = String(type).toLowerCase();
     let tmdbId = id.toString();
     
-    if (tmdbId.startsWith("kitsu:")) {
-        const resolved = await getTmdbFromKitsu(tmdbId);
-        if (resolved && resolved.tmdbId) {
-            console.log(`[StreamingCommunity] Resolved Kitsu ID ${tmdbId} to TMDB ID ${resolved.tmdbId}`);
-            tmdbId = resolved.tmdbId.toString();
-            if (resolved.season) {
-                 console.log(`[StreamingCommunity] Kitsu mapping indicates Season ${resolved.season}. Overriding requested Season ${season}`);
-                 season = resolved.season;
-            }
-        } else {
-            console.warn(`[StreamingCommunity] Could not convert Kitsu ID ${tmdbId} to TMDB ID.`);
-            return [];
-        }
-    }
-
     if (tmdbId.startsWith("tmdb:")) {
       tmdbId = tmdbId.replace("tmdb:", "");
     } else if (tmdbId.startsWith("tt")) {

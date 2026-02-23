@@ -52,26 +52,64 @@ async function getTmdbFromKitsu(kitsuId) {
         
         if (detailsData && detailsData.data && detailsData.data.attributes) {
             const attributes = detailsData.data.attributes;
-            const title = attributes.titles.en || attributes.titles.en_jp || attributes.canonicalTitle;
+            // Collect possible titles
+            const titlesToTry = new Set();
+            if (attributes.titles.en) titlesToTry.add(attributes.titles.en);
+            if (attributes.titles.en_jp) titlesToTry.add(attributes.titles.en_jp);
+            if (attributes.canonicalTitle) titlesToTry.add(attributes.canonicalTitle);
+            if (attributes.titles.ja_jp) titlesToTry.add(attributes.titles.ja_jp); // Sometimes original title helps? Maybe not on TMDB English search.
+            
+            // Convert to array
+            const titleList = Array.from(titlesToTry);
+
             const year = attributes.startDate ? attributes.startDate.substring(0, 4) : null;
             const subtype = attributes.subtype;
             
             // If we still don't have TMDB ID, search by title
             if (!tmdbId) {
                 const type = (subtype === 'movie') ? 'movie' : 'tv';
-                if (title) {
-                    const searchUrl = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(title)}&api_key=${TMDB_API_KEY}`;
-                    const searchResponse = await fetch(searchUrl);
-                    const searchData = await searchResponse.json();
+                
+                for (const title of titleList) {
+                    if (tmdbId) break; // Found it
+                    if (!title) continue;
+
+                    let searchData = { results: [] };
+                    
+                    // First try search WITH year if available
+                    if (year) {
+                        let yearParam = '';
+                        if (type === 'movie') yearParam = `&primary_release_year=${year}`;
+                        else yearParam = `&first_air_date_year=${year}`;
+                        
+                        const searchUrlYear = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(title)}&api_key=${TMDB_API_KEY}${yearParam}`;
+                        const res = await fetch(searchUrlYear);
+                        const data = await res.json();
+                        if (data.results && data.results.length > 0) {
+                            searchData = data;
+                        }
+                    }
+                    
+                    // If no results with strict year, try without year
+                    if (!searchData.results || searchData.results.length === 0) {
+                        const searchUrl = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(title)}&api_key=${TMDB_API_KEY}`;
+                        const searchResponse = await fetch(searchUrl);
+                        searchData = await searchResponse.json();
+                    }
                     
                     if (searchData.results && searchData.results.length > 0) {
                         if (year) {
+                            // Try to find exact year match in the results (even if we searched without year)
                             const match = searchData.results.find(r => {
                                 const date = type === 'movie' ? r.release_date : r.first_air_date;
                                 return date && date.startsWith(year);
                             });
-                            if (match) tmdbId = match.id;
-                            else tmdbId = searchData.results[0].id;
+                            
+                            if (match) {
+                                tmdbId = match.id;
+                            } else {
+                                // Fallback logic
+                                tmdbId = searchData.results[0].id;
+                            }
                         } else {
                             tmdbId = searchData.results[0].id;
                         }
@@ -88,8 +126,11 @@ async function getTmdbFromKitsu(kitsuId) {
                             }
                         }
                     }
-                }
+                } // End for titles
             }
+            
+            // Get best title for season heuristic
+            const title = attributes.titles.en || attributes.titles.en_jp || attributes.canonicalTitle;
 
             // Determine Season from Title
             if (tmdbId && subtype !== 'movie') {

@@ -85,29 +85,53 @@ var require_tmdb_helper = __commonJS({
           const detailsData = yield detailsResponse.json();
           if (detailsData && detailsData.data && detailsData.data.attributes) {
             const attributes = detailsData.data.attributes;
-            const title = attributes.titles.en || attributes.titles.en_jp || attributes.canonicalTitle;
+            const titlesToTry = /* @__PURE__ */ new Set();
+            if (attributes.titles.en) titlesToTry.add(attributes.titles.en);
+            if (attributes.titles.en_jp) titlesToTry.add(attributes.titles.en_jp);
+            if (attributes.canonicalTitle) titlesToTry.add(attributes.canonicalTitle);
+            if (attributes.titles.ja_jp) titlesToTry.add(attributes.titles.ja_jp);
+            const titleList = Array.from(titlesToTry);
             const year = attributes.startDate ? attributes.startDate.substring(0, 4) : null;
             const subtype = attributes.subtype;
             if (!tmdbId) {
               const type = subtype === "movie" ? "movie" : "tv";
-              if (title) {
-                const searchUrl = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(title)}&api_key=${TMDB_API_KEY2}`;
-                const searchResponse = yield fetch(searchUrl);
-                const searchData = yield searchResponse.json();
+              for (const title2 of titleList) {
+                if (tmdbId) break;
+                if (!title2) continue;
+                let searchData = { results: [] };
+                if (year) {
+                  let yearParam = "";
+                  if (type === "movie") yearParam = `&primary_release_year=${year}`;
+                  else yearParam = `&first_air_date_year=${year}`;
+                  const searchUrlYear = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(title2)}&api_key=${TMDB_API_KEY2}${yearParam}`;
+                  const res = yield fetch(searchUrlYear);
+                  const data = yield res.json();
+                  if (data.results && data.results.length > 0) {
+                    searchData = data;
+                  }
+                }
+                if (!searchData.results || searchData.results.length === 0) {
+                  const searchUrl = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(title2)}&api_key=${TMDB_API_KEY2}`;
+                  const searchResponse = yield fetch(searchUrl);
+                  searchData = yield searchResponse.json();
+                }
                 if (searchData.results && searchData.results.length > 0) {
                   if (year) {
                     const match = searchData.results.find((r) => {
                       const date = type === "movie" ? r.release_date : r.first_air_date;
                       return date && date.startsWith(year);
                     });
-                    if (match) tmdbId = match.id;
-                    else tmdbId = searchData.results[0].id;
+                    if (match) {
+                      tmdbId = match.id;
+                    } else {
+                      tmdbId = searchData.results[0].id;
+                    }
                   } else {
                     tmdbId = searchData.results[0].id;
                   }
                 } else if (subtype !== "movie") {
-                  const cleanTitle = title.replace(/\s(\d+)$/, "").replace(/\sSeason\s\d+$/i, "");
-                  if (cleanTitle !== title) {
+                  const cleanTitle = title2.replace(/\s(\d+)$/, "").replace(/\sSeason\s\d+$/i, "");
+                  if (cleanTitle !== title2) {
                     const cleanSearchUrl = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(cleanTitle)}&api_key=${TMDB_API_KEY2}`;
                     const cleanSearchResponse = yield fetch(cleanSearchUrl);
                     const cleanSearchData = yield cleanSearchResponse.json();
@@ -118,6 +142,7 @@ var require_tmdb_helper = __commonJS({
                 }
               }
             }
+            const title = attributes.titles.en || attributes.titles.en_jp || attributes.canonicalTitle;
             if (tmdbId && subtype !== "movie") {
               const seasonMatch = title.match(/Season\s*(\d+)/i) || title.match(/(\d+)(?:st|nd|rd|th)\s*Season/i);
               if (seasonMatch) {
@@ -258,13 +283,22 @@ function calculateAbsoluteEpisode(metadata, season, episode) {
   }
   return absoluteEpisode;
 }
-var checkSimilarity = (candTitle, targetTitle) => {
-  if (!targetTitle) return false;
+var getSimilarityScore = (candTitle, targetTitle) => {
+  if (!targetTitle) return 0;
   const normalize = (s) => String(s).toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
   const t1 = normalize(candTitle);
   const t2 = normalize(targetTitle);
-  if (t1.length < 2 || t2.length < 2) return false;
-  if (t1.includes(t2) || t2.includes(t1)) return true;
+  if (t1.length < 2 || t2.length < 2) return 0;
+  const extractNumbers = (str) => {
+    const matches2 = str.match(/\d+/g);
+    return matches2 ? matches2.map(Number) : [];
+  };
+  const nums1 = extractNumbers(t1);
+  const nums2 = extractNumbers(t2);
+  if (nums1.length > 0 && nums2.length > 0) {
+    const hasOverlap = nums1.some((n) => nums2.includes(n));
+    if (!hasOverlap) return 0;
+  }
   const stopWords = /* @__PURE__ */ new Set([
     // English
     "the",
@@ -307,29 +341,84 @@ var checkSimilarity = (candTitle, targetTitle) => {
     "per",
     "tra",
     "fra",
-    "che"
+    "che",
+    "no"
   ]);
+  const numberWords = {
+    "one": 1,
+    "first": 1,
+    "i": 1,
+    "two": 2,
+    "second": 2,
+    "ii": 2,
+    "three": 3,
+    "third": 3,
+    "iii": 3,
+    "four": 4,
+    "fourth": 4,
+    "iv": 4,
+    "five": 5,
+    "fifth": 5,
+    "v": 5,
+    "six": 6,
+    "sixth": 6,
+    "vi": 6,
+    "seven": 7,
+    "seventh": 7,
+    "vii": 7,
+    "eight": 8,
+    "eighth": 8,
+    "viii": 8,
+    "nine": 9,
+    "ninth": 9,
+    "ix": 9,
+    "ten": 10,
+    "tenth": 10,
+    "x": 10
+  };
   const tokenize = (x) => x.split(/\s+/).filter((w) => {
     const word = w.toLowerCase();
     if (/^\d+$/.test(word)) return true;
     if (stopWords.has(word)) return false;
-    return w.length > 1;
+    return w.length > 1 || numberWords[word];
   });
   const w1 = tokenize(t1);
   const w2 = tokenize(t2);
-  if (w1.length === 0 || w2.length === 0) return false;
+  if (w1.length === 0 || w2.length === 0) return 0;
   let matches = 0;
   let textMatches = 0;
-  for (const w of w2) {
-    if (w1.includes(w)) {
+  const unique1 = [...w1];
+  const unique2 = [...w2];
+  for (let i = unique1.length - 1; i >= 0; i--) {
+    const token = unique1[i];
+    const idx = unique2.indexOf(token);
+    if (idx !== -1) {
       matches++;
-      if (!/^\d+$/.test(w)) textMatches++;
+      if (!/^\d+$/.test(token)) textMatches++;
+      unique1.splice(i, 1);
+      unique2.splice(idx, 1);
     }
   }
+  const extractNums = (tokens) => {
+    const nums = /* @__PURE__ */ new Set();
+    tokens.forEach((t) => {
+      if (/^\d+$/.test(t)) nums.add(parseInt(t));
+      else if (numberWords[t]) nums.add(numberWords[t]);
+    });
+    return nums;
+  };
+  const n1 = extractNums(unique1);
+  const n2 = extractNums(unique2);
+  if (n1.size > 0 && n2.size > 0) {
+    return 0;
+  }
   const hasText = w2.some((w) => !/^\d+$/.test(w));
-  if (hasText && textMatches === 0) return false;
+  if (hasText && textMatches === 0) return 0;
   const score = matches / w2.length;
-  return score >= 0.5;
+  return score;
+};
+var checkSimilarity = (candTitle, targetTitle) => {
+  return getSimilarityScore(candTitle, targetTitle) >= 0.6;
 };
 function findBestMatch(candidates, title, originalTitle, season, metadata, options = {}) {
   if (!candidates || candidates.length === 0) return null;
@@ -349,12 +438,27 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
   });
   if (metaYear && (season === 1 || !isTv)) {
     const yearFiltered = candidates.filter((c) => {
+      let bestScore = 0;
+      const s1 = getSimilarityScore(c.title, title);
+      bestScore = Math.max(bestScore, s1);
+      const s2 = getSimilarityScore(c.title, originalTitle);
+      bestScore = Math.max(bestScore, s2);
+      if (c.matchedAltTitle) {
+        const s3 = getSimilarityScore(c.title, c.matchedAltTitle);
+        bestScore = Math.max(bestScore, s3);
+      }
+      if (bestScore < 0.8 && metadata.alternatives && metadata.alternatives.length > 0) {
+        const alts = metadata.alternatives.slice(0, 30);
+        for (const alt of alts) {
+          const s = getSimilarityScore(c.title, alt.title);
+          if (s > bestScore) bestScore = s;
+          if (bestScore >= 0.9) break;
+        }
+      }
+      c.similarityScore = bestScore;
       if (!c.date) {
         if (!isTv) {
-          const sim1 = checkSimilarity(c.title, title);
-          const sim2 = checkSimilarity(c.title, originalTitle);
-          const isSimilar = sim1 || sim2;
-          console.log(`[AnimeWorld Debug] Sim check for "${c.title}" vs "${title}" -> ${sim1}`);
+          const isSimilar = bestScore >= 0.6;
           let isSpecialMatch = false;
           const cTitleNorm = c.title.toLowerCase();
           if (title.includes(":")) {
@@ -383,17 +487,16 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
             }
           }
           if (isSimilar || isSpecialMatch) {
-            console.log(`[AnimeWorld] Keeping "${c.title}" despite missing date (Similarity/Special Match)`);
             return true;
           }
         }
-        console.log(`[AnimeWorld] Filtered out "${c.title}" (no date)`);
         return false;
       }
       const cYear = parseInt(c.date);
       const diff = Math.abs(cYear - metaYear);
       const keep = diff <= 2;
-      if (!keep) console.log(`[AnimeWorld] Filtered out "${c.title}" (${cYear}) vs Meta (${metaYear})`);
+      if (!keep) {
+      }
       return keep;
     });
     if (yearFiltered.length > 0) {
@@ -407,7 +510,6 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
       const t = (c.title || "").toLowerCase();
       if (normTitle.includes("movie") || normTitle.includes("film") || normTitle.includes("special") || normTitle.includes("oav") || normTitle.includes("ova")) return true;
       if (/\b(movie|film|special|oav|ova)\b/i.test(t)) {
-        console.log(`[AnimeWorld] Filtered out "${c.title}" (Movie/Special type mismatch)`);
         return false;
       }
       return true;
@@ -483,36 +585,11 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
         }
       }
     }
-    const clean = (str) => str.replace(/\b(film|movie|the|and|or|of|in|on|at|to|a|an)\b/gi, "").replace(/[^a-z0-9\s]/gi, "").replace(/\s+/g, " ").trim();
-    const normClean = clean(normTitle);
-    if (normClean.length > 3) {
-      const words = normClean.split(" ");
-      let bestCandidate = null;
-      let maxMatches = 0;
-      for (const c of candidates) {
-        const cTitle = (c.title || "").toLowerCase();
-        const cClean = clean(cTitle);
-        const cWords = cClean.split(" ");
-        let matches = 0;
-        for (const w of words) {
-          if (cWords.includes(w)) matches += 1;
-          else if (cTitle.includes(w)) matches += 0.5;
-        }
-        if (cTitle.includes("movie") || cTitle.includes("film")) matches += 0.5;
-        if (matches > maxMatches) {
-          maxMatches = matches;
-          bestCandidate = c;
-        }
-      }
-      if (bestCandidate) {
-        const required = words.length * 0.75;
-        if (maxMatches >= required) return bestCandidate;
-        const allWordsFound = words.every((w) => {
-          const cTitle = (bestCandidate.title || "").toLowerCase();
-          return cTitle.includes(w);
-        });
-        if (allWordsFound) return bestCandidate;
-      }
+    candidates.sort((a, b) => (b.similarityScore || 0) - (a.similarityScore || 0));
+    const best = candidates[0];
+    if (best && (best.similarityScore || 0) >= 0.6) {
+      console.log(`[AnimeWorld] Selected best movie match: "${best.title}" (Score: ${(best.similarityScore || 0).toFixed(2)})`);
+      return best;
     }
   }
   if (metaYear) {
@@ -550,6 +627,7 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
     }
   } else {
     const sorted = [...candidates].sort((a, b) => {
+      if (!isTv) return (b.title || "").length - (a.title || "").length;
       return (a.title || "").length - (b.title || "").length;
     });
     const hasNumberSuffix = (str) => {
@@ -559,13 +637,15 @@ function findBestMatch(candidates, title, originalTitle, season, metadata, optio
       if (/(season|stagione)\s*\d+/i.test(str)) return true;
       return false;
     };
-    const noNumberMatch = sorted.find((c) => {
-      const t = (c.title || "").trim();
-      return !hasNumberSuffix(t);
-    });
-    if (noNumberMatch) {
-      if (checkSimilarity(noNumberMatch.title, title) || checkSimilarity(noNumberMatch.title, originalTitle)) {
-        return noNumberMatch;
+    if (isTv) {
+      const noNumberMatch = sorted.find((c) => {
+        const t = (c.title || "").trim();
+        return !hasNumberSuffix(t);
+      });
+      if (noNumberMatch) {
+        if (checkSimilarity(noNumberMatch.title, title) || checkSimilarity(noNumberMatch.title, originalTitle)) {
+          return noNumberMatch;
+        }
       }
     }
     const anyMatch = sorted.find((c) => {
@@ -725,7 +805,6 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
           `${title} Movie`
         ];
         for (const query of searchQueries) {
-          console.log(`[AnimeWorld] Special search: ${query}`);
           const res = yield searchAnime(query);
           if (res && res.length > 0) {
             candidates = candidates.concat(res);
@@ -749,7 +828,6 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
             seasonMeta.name
           ];
           for (const query of seasonQueries) {
-            console.log(`[AnimeWorld] Specific Season Name search: ${query}`);
             const res = yield searchAnime(query);
             if (res && res.length > 0) {
               console.log(`[AnimeWorld] Found matches for season name: ${query}`);
@@ -799,50 +877,52 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
           const mainTitle = parts[0].trim();
           const subtitle = parts[parts.length - 1].trim();
           if (mainTitle.length > 3) {
-            console.log(`[AnimeWorld] Main title search: ${mainTitle}`);
             const mainRes = yield searchAnime(mainTitle);
             if (mainRes && mainRes.length > 0) variantCandidates.push(...mainRes);
           }
           if (subtitle.length > 3) {
-            console.log(`[AnimeWorld] Movie subtitle search: ${subtitle}`);
             const subRes = yield searchAnime(subtitle);
             if (subRes && subRes.length > 0) variantCandidates.push(...subRes);
             if (/part\s*\d+/i.test(subtitle)) {
               const simpleSubtitle = subtitle.replace(/part\s*\d+/i, "").trim();
               if (simpleSubtitle.length > 3) {
-                console.log(`[AnimeWorld] Simplified subtitle search: ${simpleSubtitle}`);
                 const simpleRes = yield searchAnime(simpleSubtitle);
                 if (simpleRes && simpleRes.length > 0) variantCandidates.push(...simpleRes);
               }
             }
           }
           const movieQuery = `${mainTitle} Movie`;
-          console.log(`[AnimeWorld] Movie query search: ${movieQuery}`);
           const movieRes = yield searchAnime(movieQuery);
           if (movieRes && movieRes.length > 0) variantCandidates.push(...movieRes);
           const filmQuery = `${mainTitle} Film`;
-          console.log(`[AnimeWorld] Film query search: ${filmQuery}`);
           const filmRes = yield searchAnime(filmQuery);
           if (filmRes && filmRes.length > 0) variantCandidates.push(...filmRes);
           if (title.includes(" - ")) {
             const colonTitle = title.replace(" - ", ": ");
-            console.log(`[AnimeWorld] Colon search: ${colonTitle}`);
             const colonRes = yield searchAnime(colonTitle);
             if (colonRes && colonRes.length > 0) variantCandidates.push(...colonRes);
           }
         } else {
           if (!title.toLowerCase().includes("movie")) {
             const movieQuery = `${title} Movie`;
-            console.log(`[AnimeWorld] Movie query search: ${movieQuery}`);
             const movieRes = yield searchAnime(movieQuery);
             if (movieRes && movieRes.length > 0) variantCandidates.push(...movieRes);
           }
           if (!title.toLowerCase().includes("film")) {
             const filmQuery = `${title} Film`;
-            console.log(`[AnimeWorld] Film query search: ${filmQuery}`);
             const filmRes = yield searchAnime(filmQuery);
             if (filmRes && filmRes.length > 0) variantCandidates.push(...filmRes);
           }
+        }
+        if (title.includes(":")) {
+          const hyphenTitle = title.replace(/:/g, " -");
+          const hyphenRes = yield searchAnime(hyphenTitle);
+          if (hyphenRes && hyphenRes.length > 0) variantCandidates.push(...hyphenRes);
+        }
+        const simpleTitle = title.replace(/\b(film|movie|the|movie)\b/gi, "").replace(/-/g, "").replace(/:/g, "").replace(/\s+/g, " ").trim();
+        if (simpleTitle.length > 3 && simpleTitle !== title) {
+          const simpleRes = yield searchAnime(simpleTitle);
+          if (simpleRes && simpleRes.length > 0) variantCandidates.push(...simpleRes);
         }
         if (variantCandidates.length > 0) {
           candidates = [...variantCandidates, ...candidates];
@@ -851,7 +931,6 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
       }
       const shouldSearchOriginal = (!candidates || candidates.length === 0 || isMovie) && originalTitle && originalTitle !== title;
       if (shouldSearchOriginal) {
-        console.log(`[AnimeWorld] Trying original title: ${originalTitle}`);
         const res = yield searchAnime(originalTitle);
         if (res && res.length > 0) {
           const valid = res.some((c) => {
@@ -891,7 +970,6 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
         }
         sanitizedQueries = [...new Set(sanitizedQueries)];
         for (const q of sanitizedQueries) {
-          console.log(`[AnimeWorld] Trying sanitized original title: ${q}`);
           const res = yield searchAnime(q);
           if (res && res.length > 0) {
             const validRes = res.filter((c) => {
@@ -907,13 +985,15 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
           candidates = candidates.filter((v, i, a) => a.findIndex((t) => t.href === v.href) === i);
         }
       }
-      if ((!candidates || candidates.length === 0) && metadata.alternatives) {
+      if ((!candidates || candidates.length === 0 || isMovie) && metadata.alternatives) {
         const altTitles = metadata.alternatives.map((t) => t.title).filter((t) => /^[a-zA-Z0-9\s\-\.\:\(\)]+$/.test(t)).filter((t) => t !== title && t !== originalTitle);
         const uniqueAlts = [...new Set(altTitles)];
+        let altSearchCount = 0;
         for (const altTitle of uniqueAlts) {
+          if (altSearchCount >= 5) break;
           if (altTitle.length < 4) continue;
-          console.log(`[AnimeWorld] Trying alternative title: ${altTitle}`);
           const res = yield searchAnime(altTitle);
+          altSearchCount++;
           if (res && res.length > 0) {
             const valid = res.some((c) => {
               if (checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle)) return true;
@@ -923,10 +1003,14 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
               return false;
             });
             if (valid) {
-              candidates = res;
-              break;
+              console.log(`[AnimeWorld] Found valid candidates from alternative title: ${altTitle}`);
+              res.forEach((c) => c.matchedAltTitle = altTitle);
+              candidates = [...candidates, ...res];
             }
           }
+        }
+        if (candidates.length > 0) {
+          candidates = candidates.filter((v, i, a) => a.findIndex((t) => t.href === v.href) === i);
         }
       }
       if (!candidates || candidates.length === 0) {
@@ -940,7 +1024,7 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
         const processedHrefs = /* @__PURE__ */ new Set();
         const promising = list.filter((c) => {
           if (processedHrefs.has(c.href)) return false;
-          const isSim = checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle);
+          const isSim = checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle) || c.matchedAltTitle && checkSimilarity(c.title, c.matchedAltTitle);
           if (isSim) {
             processedHrefs.add(c.href);
             return true;
@@ -958,9 +1042,7 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
             const year = yield fetchTooltipDate(c.tooltipUrl);
             if (year) {
               c.date = year;
-              console.log(`[AnimeWorld] Enriched "${c.title}" with year: ${year}`);
             } else {
-              console.log(`[AnimeWorld] Failed to enrich "${c.title}" (no year found)`);
             }
           }
         }
@@ -1015,7 +1097,6 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
               }
               if (!isSpecific && !isSeasonNumber) {
                 if (normMatch.includes(normSeries) || normSeries.includes(normMatch)) {
-                  console.log(`[AnimeWorld] Fuzzy match for absolute check: "${normMatch}" vs "${normSeries}"`);
                   prioritizeAbsolute = true;
                 }
               }

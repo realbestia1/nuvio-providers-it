@@ -1,6 +1,6 @@
 {
   "name": "Nuvio IT Providers",
-  "version": "1.0.23",
+  "version": "1.0.26",
   "scrapers": [
     {
       "id": "nuvio-it-providers-eurostreaming",
@@ -44,7 +44,7 @@
     {
       "id": "nuvio-it-providers-streamingcommunity",
       "name": "StreamingCommunity",
-      "version": "1.1.8",
+      "version": "1.1.9",
       "description": "Movies and Series from StreamingCommunity",
       "resources": ["stream"],
       "contentLanguage": ["it"],

@@ -1,7 +1,3 @@
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-};
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
@@ -23,132 +19,7 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// src/tmdb_helper.js
-var require_tmdb_helper = __commonJS({
-  "src/tmdb_helper.js"(exports2, module2) {
-    var TMDB_API_KEY2 = "68e094699525b18a70bab2f86b1fa706";
-    function getTmdbFromKitsu2(kitsuId) {
-      return __async(this, null, function* () {
-        var _a, _b, _c, _d;
-        try {
-          const id = String(kitsuId).replace("kitsu:", "");
-          const mappingResponse = yield fetch(`https://kitsu.io/api/edge/anime/${id}/mappings`);
-          let mappingData = null;
-          if (mappingResponse.ok) {
-            mappingData = yield mappingResponse.json();
-          }
-          let tmdbId = null;
-          let season = null;
-          if (mappingData && mappingData.data) {
-            const tvdbMapping = mappingData.data.find((m) => m.attributes.externalSite === "thetvdb");
-            if (tvdbMapping) {
-              const tvdbId = tvdbMapping.attributes.externalId;
-              const findUrl = `https://api.themoviedb.org/3/find/${tvdbId}?api_key=${TMDB_API_KEY2}&external_source=tvdb_id`;
-              const findResponse = yield fetch(findUrl);
-              const findData = yield findResponse.json();
-              if (((_a = findData.tv_results) == null ? void 0 : _a.length) > 0) tmdbId = findData.tv_results[0].id;
-              else if (((_b = findData.movie_results) == null ? void 0 : _b.length) > 0) return { tmdbId: findData.movie_results[0].id, season: null };
-            }
-            if (!tmdbId) {
-              const imdbMapping = mappingData.data.find((m) => m.attributes.externalSite === "imdb");
-              if (imdbMapping) {
-                const imdbId = imdbMapping.attributes.externalId;
-                const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY2}&external_source=imdb_id`;
-                const findResponse = yield fetch(findUrl);
-                const findData = yield findResponse.json();
-                if (((_c = findData.tv_results) == null ? void 0 : _c.length) > 0) tmdbId = findData.tv_results[0].id;
-                else if (((_d = findData.movie_results) == null ? void 0 : _d.length) > 0) return { tmdbId: findData.movie_results[0].id, season: null };
-              }
-            }
-          }
-          const detailsResponse = yield fetch(`https://kitsu.io/api/edge/anime/${id}`);
-          if (!detailsResponse.ok) return null;
-          const detailsData = yield detailsResponse.json();
-          if (detailsData && detailsData.data && detailsData.data.attributes) {
-            const attributes = detailsData.data.attributes;
-            const title = attributes.titles.en || attributes.titles.en_jp || attributes.canonicalTitle;
-            const year = attributes.startDate ? attributes.startDate.substring(0, 4) : null;
-            const subtype = attributes.subtype;
-            if (!tmdbId) {
-              const type = subtype === "movie" ? "movie" : "tv";
-              if (title) {
-                const searchUrl = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(title)}&api_key=${TMDB_API_KEY2}`;
-                const searchResponse = yield fetch(searchUrl);
-                const searchData = yield searchResponse.json();
-                if (searchData.results && searchData.results.length > 0) {
-                  if (year) {
-                    const match = searchData.results.find((r) => {
-                      const date = type === "movie" ? r.release_date : r.first_air_date;
-                      return date && date.startsWith(year);
-                    });
-                    if (match) tmdbId = match.id;
-                    else tmdbId = searchData.results[0].id;
-                  } else {
-                    tmdbId = searchData.results[0].id;
-                  }
-                } else if (subtype !== "movie") {
-                  const cleanTitle = title.replace(/\s(\d+)$/, "").replace(/\sSeason\s\d+$/i, "");
-                  if (cleanTitle !== title) {
-                    const cleanSearchUrl = `https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(cleanTitle)}&api_key=${TMDB_API_KEY2}`;
-                    const cleanSearchResponse = yield fetch(cleanSearchUrl);
-                    const cleanSearchData = yield cleanSearchResponse.json();
-                    if (cleanSearchData.results && cleanSearchData.results.length > 0) {
-                      tmdbId = cleanSearchData.results[0].id;
-                    }
-                  }
-                }
-              }
-            }
-            if (tmdbId && subtype !== "movie") {
-              const seasonMatch = title.match(/Season\s*(\d+)/i) || title.match(/(\d+)(?:st|nd|rd|th)\s*Season/i);
-              if (seasonMatch) {
-                season = parseInt(seasonMatch[1]);
-              } else if (title.match(/\s(\d+)$/)) {
-                season = parseInt(title.match(/\s(\d+)$/)[1]);
-              } else if (title.match(/\sII$/)) season = 2;
-              else if (title.match(/\sIII$/)) season = 3;
-              else if (title.match(/\sIV$/)) season = 4;
-              else if (title.match(/\sV$/)) season = 5;
-            }
-          }
-          return { tmdbId, season };
-        } catch (e) {
-          console.error("[Kitsu] Error converting ID:", e);
-          return null;
-        }
-      });
-    }
-    function getSeasonEpisodeFromAbsolute(tmdbId, absoluteEpisode) {
-      return __async(this, null, function* () {
-        try {
-          const url = `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_API_KEY2}&append_to_response=seasons`;
-          const response = yield fetch(url);
-          if (!response.ok) return null;
-          const data = yield response.json();
-          let totalEpisodes = 0;
-          const seasons = data.seasons.filter((s) => s.season_number > 0).sort((a, b) => a.season_number - b.season_number);
-          for (const season of seasons) {
-            if (absoluteEpisode <= totalEpisodes + season.episode_count) {
-              return {
-                season: season.season_number,
-                episode: absoluteEpisode - totalEpisodes
-              };
-            }
-            totalEpisodes += season.episode_count;
-          }
-          return null;
-        } catch (e) {
-          console.error("[TMDB] Error mapping absolute episode:", e);
-          return null;
-        }
-      });
-    }
-    module2.exports = { getTmdbFromKitsu: getTmdbFromKitsu2, getSeasonEpisodeFromAbsolute };
-  }
-});
-
 // src/streamingcommunity/index.js
-var { getTmdbFromKitsu } = require_tmdb_helper();
 var BASE_URL = "https://vixsrc.to";
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
@@ -239,20 +110,6 @@ function getStreams(id, type, season, episode) {
   return __async(this, null, function* () {
     const normalizedType = String(type).toLowerCase();
     let tmdbId = id.toString();
-    if (tmdbId.startsWith("kitsu:")) {
-      const resolved = yield getTmdbFromKitsu(tmdbId);
-      if (resolved && resolved.tmdbId) {
-        console.log(`[StreamingCommunity] Resolved Kitsu ID ${tmdbId} to TMDB ID ${resolved.tmdbId}`);
-        tmdbId = resolved.tmdbId.toString();
-        if (resolved.season) {
-          console.log(`[StreamingCommunity] Kitsu mapping indicates Season ${resolved.season}. Overriding requested Season ${season}`);
-          season = resolved.season;
-        }
-      } else {
-        console.warn(`[StreamingCommunity] Could not convert Kitsu ID ${tmdbId} to TMDB ID.`);
-        return [];
-      }
-    }
     if (tmdbId.startsWith("tmdb:")) {
       tmdbId = tmdbId.replace("tmdb:", "");
     } else if (tmdbId.startsWith("tt")) {
