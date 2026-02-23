@@ -1,4 +1,5 @@
 const { getTmdbFromKitsu } = require('../tmdb_helper.js');
+const { formatStream } = require('../formatter.js');
 
 const BASE_URL = "https://www.animeworld.ac";
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
@@ -1473,7 +1474,7 @@ async function getStreams(id, type, season, episode, providedMetadata = null) {
         if (bestSub) await processMatch(bestSub, false);
         if (bestDub) await processMatch(bestDub, true);
 
-        return results;
+        return results.map(s => formatStream(s, "AnimeWorld")).filter(s => s !== null);
 
     } catch (e) {
         console.error("[AnimeWorld] getStreams error:", e);

@@ -24,6 +24,7 @@ const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, l
 
 const { extractMixDrop, extractDropLoad, extractSuperVideo, extractUqload, extractUpstream } = require('../extractors');
 const { getSeasonEpisodeFromAbsolute, getTmdbFromKitsu } = require('../tmdb_helper.js');
+const { formatStream } = require('../formatter.js');
 
 function getQualityFromName(qualityStr) {
   if (!qualityStr) return 'Unknown';
@@ -418,7 +419,10 @@ function getStreams(id, type, season, episode) {
         return null;
       }));
       const results = yield Promise.all(streamPromises);
-      return results.filter((r) => r !== null);
+      return results
+          .filter((r) => r !== null)
+          .map(s => formatStream(s, "Guardaserie"))
+          .filter(s => s !== null);
     } catch (e) {
       console.error("[Guardaserie] Error:", e);
       return [];

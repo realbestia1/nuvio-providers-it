@@ -1,4 +1,23 @@
+var __defProp = Object.defineProperty;
+var __defProps = Object.defineProperties;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
@@ -624,26 +643,77 @@ var require_tmdb_helper = __commonJS({
   }
 });
 
+// src/formatter.js
+var require_formatter = __commonJS({
+  "src/formatter.js"(exports2, module2) {
+    function formatStream2(stream, providerName) {
+      let quality = stream.quality || "";
+      if (quality === "2160p") quality = "\u{1F525}4K UHD";
+      else if (quality === "1440p") quality = "\u2728 QHD";
+      else if (quality === "1080p") quality = "\u{1F680} FHD";
+      else if (quality === "720p") quality = "\u{1F4BF} HD";
+      else if (quality === "576p" || quality === "480p" || quality === "360p" || quality === "240p") quality = "\u{1F4A9} Low Quality";
+      else if (!quality || quality.toLowerCase() === "auto") quality = "Unknown";
+      let title = `\u{1F4C1} ${stream.title || "Stream"}`;
+      let language = stream.language;
+      if (!language) {
+        if (stream.name && (stream.name.includes("SUB ITA") || stream.name.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
+        else if (stream.title && (stream.title.includes("SUB ITA") || stream.title.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
+        else language = "\u{1F1EE}\u{1F1F9}";
+      }
+      let details = [];
+      if (stream.size) details.push(`\u{1F4E6} ${stream.size}`);
+      const desc = details.join(" | ");
+      let pName = stream.name || stream.server || providerName;
+      if (pName) {
+        pName = pName.replace(/\s*\[?\(?\s*SUB\s*ITA\s*\)?\]?/i, "").replace(/\s*\[?\(?\s*ITA\s*\)?\]?/i, "").replace(/\s*\[?\(?\s*SUB\s*\)?\]?/i, "").replace(/\(\s*\)/g, "").replace(/\[\s*\]/g, "").trim();
+      }
+      if (pName === providerName) {
+        pName = pName.charAt(0).toUpperCase() + pName.slice(1);
+      }
+      if (pName) {
+        pName = `\u{1F4E1} ${pName}`;
+      }
+      const finalName = quality || pName;
+      let titleText = `${title}
+${pName}`;
+      if (desc) titleText += ` | ${desc}`;
+      if (language) titleText += `
+\u{1F5E3}\uFE0F ${language}`;
+      return __spreadProps(__spreadValues({}, stream), {
+        // Keep original properties
+        name: finalName,
+        title: titleText,
+        // Ensure language is set for Stremio/Nuvio sorting
+        language,
+        // Mark as formatted
+        _nuvio_formatted: true
+      });
+    }
+    module2.exports = { formatStream: formatStream2 };
+  }
+});
+
 // src/eurostreaming/index.js
-var __defProp = Object.defineProperty;
-var __defProps = Object.defineProperties;
-var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
-var __getOwnPropSymbols = Object.getOwnPropertySymbols;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __propIsEnum = Object.prototype.propertyIsEnumerable;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __spreadValues = (a, b) => {
+var __defProp2 = Object.defineProperty;
+var __defProps2 = Object.defineProperties;
+var __getOwnPropDescs2 = Object.getOwnPropertyDescriptors;
+var __getOwnPropSymbols2 = Object.getOwnPropertySymbols;
+var __hasOwnProp2 = Object.prototype.hasOwnProperty;
+var __propIsEnum2 = Object.prototype.propertyIsEnumerable;
+var __defNormalProp2 = (obj, key, value) => key in obj ? __defProp2(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues2 = (a, b) => {
   for (var prop in b || (b = {}))
-    if (__hasOwnProp.call(b, prop))
-      __defNormalProp(a, prop, b[prop]);
-  if (__getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(b)) {
-      if (__propIsEnum.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
+    if (__hasOwnProp2.call(b, prop))
+      __defNormalProp2(a, prop, b[prop]);
+  if (__getOwnPropSymbols2)
+    for (var prop of __getOwnPropSymbols2(b)) {
+      if (__propIsEnum2.call(b, prop))
+        __defNormalProp2(a, prop, b[prop]);
     }
   return a;
 };
-var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+var __spreadProps2 = (a, b) => __defProps2(a, __getOwnPropDescs2(b));
 var __async2 = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
@@ -669,6 +739,7 @@ var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 var USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
 var { extractMixDrop, extractDropLoad, extractSuperVideo, extractStreamTape, extractVidoza, extractUqload, extractUpstream } = require_extractors();
 var { getSeasonEpisodeFromAbsolute, getTmdbFromKitsu } = require_tmdb_helper();
+var { formatStream } = require_formatter();
 function getQualityFromName(qualityStr) {
   if (!qualityStr) return "Unknown";
   const quality = qualityStr.toUpperCase();
@@ -813,7 +884,7 @@ function searchShow(query) {
             score = 10;
           }
         }
-        candidates.push(__spreadProps(__spreadValues({}, r), { score }));
+        candidates.push(__spreadProps2(__spreadValues2({}, r), { score }));
       });
       return candidates.sort((a, b) => b.score - a.score);
     } catch (e) {
@@ -1312,7 +1383,7 @@ function getStreams(id, type, season, episode, showInfo) {
         }));
       }
       yield Promise.all(promises.map((p) => p()));
-      return streams;
+      return streams.map((s) => formatStream(s, "EuroStreaming")).filter((s) => s !== null);
     } catch (error) {
       console.error("[EuroStreaming] Error:", error);
       return [];

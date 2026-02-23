@@ -24,6 +24,7 @@ const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, l
 
 const { extractMixDrop, extractDropLoad, extractSuperVideo } = require('../extractors');
 const { getTmdbFromKitsu } = require('../tmdb_helper.js');
+const { formatStream } = require('../formatter.js');
 
 function getQualityFromName(qualityStr) {
   if (!qualityStr) return 'Unknown';
@@ -279,7 +280,7 @@ function getStreams(id, type, season, episode) {
           uniqueStreams.push(s);
         }
       }
-      return uniqueStreams;
+      return uniqueStreams.map(s => formatStream(s, "GuardaHD")).filter(s => s !== null);
     } catch (error) {
       console.error("[GuardaHD] Error:", error);
       return [];

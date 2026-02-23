@@ -1,5 +1,6 @@
 const { extractVixCloud } = require('../extractors');
 const { getTmdbFromKitsu } = require('../tmdb_helper.js');
+const { formatStream } = require('../formatter.js');
 
 const BASE_URL = "https://www.animeunity.so";
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
@@ -991,7 +992,7 @@ async function getEpisodeStreams(anime, episodeNumber, langTag = "", isMovie = f
             }
         }
 
-        return streams;
+        return streams.map(s => formatStream(s, "AnimeUnity")).filter(s => s !== null);
     } catch (e) {
         console.error(`[AnimeUnity] Error extracting streams for ${anime.title}:`, e);
         return [];

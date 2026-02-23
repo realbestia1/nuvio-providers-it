@@ -1,5 +1,6 @@
 
 const BASE_URL = "https://vixsrc.to";
+const { formatStream } = require('../formatter.js');
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 const COMMON_HEADERS = {
@@ -179,14 +180,16 @@ async function getStreams(id, type, season, episode) {
         }
 
         const normalizedQuality = getQualityFromName(quality);
-        return [{
+        const result = {
           name: `StreamingCommunity`,
           title: finalDisplayName,
           url: streamUrl,
           quality: normalizedQuality,
           type: "direct",
           headers: COMMON_HEADERS
-        }];
+        };
+        
+        return [formatStream(result, "StreamingCommunity")].filter(s => s !== null);
       } else {
         console.log("[StreamingCommunity] Could not find playlist info in HTML");
         return [];

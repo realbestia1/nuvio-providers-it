@@ -643,9 +643,61 @@ var require_tmdb_helper = __commonJS({
   }
 });
 
+// src/formatter.js
+var require_formatter = __commonJS({
+  "src/formatter.js"(exports2, module2) {
+    function formatStream2(stream, providerName) {
+      let quality = stream.quality || "";
+      if (quality === "2160p") quality = "\u{1F525}4K UHD";
+      else if (quality === "1440p") quality = "\u2728 QHD";
+      else if (quality === "1080p") quality = "\u{1F680} FHD";
+      else if (quality === "720p") quality = "\u{1F4BF} HD";
+      else if (quality === "576p" || quality === "480p" || quality === "360p" || quality === "240p") quality = "\u{1F4A9} Low Quality";
+      else if (!quality || quality.toLowerCase() === "auto") quality = "Unknown";
+      let title = `\u{1F4C1} ${stream.title || "Stream"}`;
+      let language = stream.language;
+      if (!language) {
+        if (stream.name && (stream.name.includes("SUB ITA") || stream.name.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
+        else if (stream.title && (stream.title.includes("SUB ITA") || stream.title.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
+        else language = "\u{1F1EE}\u{1F1F9}";
+      }
+      let details = [];
+      if (stream.size) details.push(`\u{1F4E6} ${stream.size}`);
+      const desc = details.join(" | ");
+      let pName = stream.name || stream.server || providerName;
+      if (pName) {
+        pName = pName.replace(/\s*\[?\(?\s*SUB\s*ITA\s*\)?\]?/i, "").replace(/\s*\[?\(?\s*ITA\s*\)?\]?/i, "").replace(/\s*\[?\(?\s*SUB\s*\)?\]?/i, "").replace(/\(\s*\)/g, "").replace(/\[\s*\]/g, "").trim();
+      }
+      if (pName === providerName) {
+        pName = pName.charAt(0).toUpperCase() + pName.slice(1);
+      }
+      if (pName) {
+        pName = `\u{1F4E1} ${pName}`;
+      }
+      const finalName = quality || pName;
+      let titleText = `${title}
+${pName}`;
+      if (desc) titleText += ` | ${desc}`;
+      if (language) titleText += `
+\u{1F5E3}\uFE0F ${language}`;
+      return __spreadProps(__spreadValues({}, stream), {
+        // Keep original properties
+        name: finalName,
+        title: titleText,
+        // Ensure language is set for Stremio/Nuvio sorting
+        language,
+        // Mark as formatted
+        _nuvio_formatted: true
+      });
+    }
+    module2.exports = { formatStream: formatStream2 };
+  }
+});
+
 // src/animeunity/index.js
 var { extractVixCloud } = require_extractors();
 var { getTmdbFromKitsu } = require_tmdb_helper();
+var { formatStream } = require_formatter();
 var BASE_URL = "https://www.animeunity.so";
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 var USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
@@ -1382,7 +1434,7 @@ function getEpisodeStreams(anime, episodeNumber, langTag = "", isMovie = false) 
           console.error("[AnimeUnity] VixCloud extraction error:", e);
         }
       }
-      return streams;
+      return streams.map((s) => formatStream(s, "AnimeUnity")).filter((s) => s !== null);
     } catch (e) {
       console.error(`[AnimeUnity] Error extracting streams for ${anime.title}:`, e);
       return [];

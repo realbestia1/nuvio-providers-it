@@ -43,6 +43,7 @@ const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, l
 
 const { extractMixDrop, extractDropLoad, extractSuperVideo, extractStreamTape, extractVidoza, extractUqload, extractUpstream } = require('../extractors');
 const { getSeasonEpisodeFromAbsolute, getTmdbFromKitsu } = require('../tmdb_helper.js');
+const { formatStream } = require('../formatter.js');
 
 function getQualityFromName(qualityStr) {
   if (!qualityStr) return 'Unknown';
@@ -845,7 +846,7 @@ function getStreams(id, type, season, episode, showInfo) {
         }));
       }
       yield Promise.all(promises.map((p) => p()));
-      return streams;
+      return streams.map(s => formatStream(s, "EuroStreaming")).filter(s => s !== null);
     } catch (error) {
       console.error("[EuroStreaming] Error:", error);
       return [];
