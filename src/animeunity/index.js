@@ -943,8 +943,7 @@ async function getEpisodeStreams(anime, episodeNumber, langTag = "", isMovie = f
             return match ? match[1] : "Unknown";
         };
 
-        /* 
-        // 1. Direct Link - Disabled to prioritize M3U8 (VixCloud)
+        // 1. Direct Link
         if (targetEpisode.link && targetEpisode.link.startsWith("http")) {
             let quality = extractQuality(targetEpisode.link);
             if (quality === "Unknown") quality = extractQuality(targetEpisode.file_name);
@@ -964,7 +963,6 @@ async function getEpisodeStreams(anime, episodeNumber, langTag = "", isMovie = f
                 }
             });
         }
-        */
 
         // 2. VixCloud Embed (scws_id)
         if (targetEpisode.scws_id) {
