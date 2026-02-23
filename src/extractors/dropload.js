@@ -24,12 +24,12 @@ async function extractDropLoad(url, refererBase = null) {
       if (fileMatch) {
         let streamUrl = fileMatch[1];
         if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;
-        const referer = new URL(url).origin + "/";
         return {
           url: streamUrl,
           headers: {
             "User-Agent": USER_AGENT,
-            "Referer": referer
+            "Referer": url,
+            "Origin": new URL(url).origin
           }
         };
       }
