@@ -154,12 +154,12 @@ var require_dropload = __commonJS({
             if (fileMatch) {
               let streamUrl = fileMatch[1];
               if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;
-              const referer = new URL(url).origin + "/";
               return {
                 url: streamUrl,
                 headers: {
                   "User-Agent": USER_AGENT,
-                  "Referer": referer
+                  "Referer": url,
+                  "Origin": new URL(url).origin
                 }
               };
             }
@@ -749,7 +749,8 @@ ${pName}`;
       if (stream.headers) {
         behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
         behaviorHints.proxyHeaders.request = stream.headers;
-        delete stream.headers;
+        behaviorHints.headers = stream.headers;
+        behaviorHints.notWebReady = true;
       }
       return __spreadProps(__spreadValues({}, stream), {
         // Keep original properties

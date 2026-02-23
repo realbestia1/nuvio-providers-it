@@ -248,7 +248,8 @@ ${pName}`;
       if (stream.headers) {
         behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
         behaviorHints.proxyHeaders.request = stream.headers;
-        delete stream.headers;
+        behaviorHints.headers = stream.headers;
+        behaviorHints.notWebReady = true;
       }
       return __spreadProps(__spreadValues({}, stream), {
         // Keep original properties

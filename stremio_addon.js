@@ -102,7 +102,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
                     title: s.title,
                     url: s.url,
                     behaviorHints: {
-                        notWebReady: false,
+                        ...(s.behaviorHints || {}),
+                        notWebReady: true,
                         bingeGroup: name
                     },
                     language: s.language

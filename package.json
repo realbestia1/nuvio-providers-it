@@ -1,6 +1,6 @@
 {
   "name": "nuvio-providers-it",
-  "version": "1.0.38",
+  "version": "1.0.40",
   "description": "",
   "main": "stremio_addon.js",
   "scripts": {
