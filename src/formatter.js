@@ -72,7 +72,8 @@ function formatStream(stream, providerName) {
     if (stream.headers) {
         behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
         behaviorHints.proxyHeaders.request = stream.headers;
-        // Do not delete stream.headers as some players might still use it
+        // Also support "headers" in behaviorHints directly (Stremio extension)
+        behaviorHints.headers = stream.headers;
     }
 
     return {
