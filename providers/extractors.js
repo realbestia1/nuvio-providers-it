@@ -89,7 +89,7 @@ var require_mixdrop = __commonJS({
           });
           if (!response.ok) return null;
           const html = yield response.text();
-          const packedRegex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\),(\d+),(\{\})\)\)/;
+          const packedRegex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\),(\d+),(\{\})\)\)/;
           const match = packedRegex.exec(html);
           if (match) {
             const p = match[1];
@@ -139,7 +139,7 @@ var require_dropload = __commonJS({
           });
           if (!response.ok) return null;
           const html = yield response.text();
-          const regex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
+          const regex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
           const match = regex.exec(html);
           if (match) {
             const p = match[1];
@@ -309,7 +309,7 @@ var require_upstream = __commonJS({
           });
           if (!response.ok) return null;
           const html = yield response.text();
-          const packedRegex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
+          const packedRegex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
           const match = packedRegex.exec(html);
           if (match) {
             const p = match[1];

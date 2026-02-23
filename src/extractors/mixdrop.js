@@ -11,7 +11,7 @@ async function extractMixDrop(url, refererBase = 'https://m1xdrop.net/') {
     });
     if (!response.ok) return null;
     const html = await response.text();
-    const packedRegex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\),(\d+),(\{\})\)\)/;
+    const packedRegex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\),(\d+),(\{\})\)\)/;
     const match = packedRegex.exec(html);
     if (match) {
       const p = match[1];

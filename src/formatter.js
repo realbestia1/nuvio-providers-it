@@ -67,6 +67,14 @@ function formatStream(stream, providerName) {
     if (desc) titleText += ` | ${desc}`;
     if (language) titleText += `\n🗣️ ${language}`;
 
+    // Move headers to behaviorHints if present
+    const behaviorHints = stream.behaviorHints || {};
+    if (stream.headers) {
+        behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
+        behaviorHints.proxyHeaders.request = stream.headers;
+        delete stream.headers; // Clean up
+    }
+
     return {
         ...stream, // Keep original properties
         name: finalName,
@@ -74,7 +82,8 @@ function formatStream(stream, providerName) {
         // Ensure language is set for Stremio/Nuvio sorting
         language: language,
         // Mark as formatted
-        _nuvio_formatted: true
+        _nuvio_formatted: true,
+        behaviorHints: behaviorHints
     };
 }
 

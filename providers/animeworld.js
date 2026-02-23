@@ -244,6 +244,12 @@ ${pName}`;
       if (desc) titleText += ` | ${desc}`;
       if (language) titleText += `
 \u{1F5E3}\uFE0F ${language}`;
+      const behaviorHints = stream.behaviorHints || {};
+      if (stream.headers) {
+        behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
+        behaviorHints.proxyHeaders.request = stream.headers;
+        delete stream.headers;
+      }
       return __spreadProps(__spreadValues({}, stream), {
         // Keep original properties
         name: finalName,
@@ -251,7 +257,8 @@ ${pName}`;
         // Ensure language is set for Stremio/Nuvio sorting
         language,
         // Mark as formatted
-        _nuvio_formatted: true
+        _nuvio_formatted: true,
+        behaviorHints
       });
     }
     module2.exports = { formatStream: formatStream2 };

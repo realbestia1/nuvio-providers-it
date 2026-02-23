@@ -92,7 +92,7 @@ var require_mixdrop = __commonJS({
           });
           if (!response.ok) return null;
           const html = yield response.text();
-          const packedRegex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\),(\d+),(\{\})\)\)/;
+          const packedRegex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\),(\d+),(\{\})\)\)/;
           const match = packedRegex.exec(html);
           if (match) {
             const p = match[1];
@@ -142,7 +142,7 @@ var require_dropload = __commonJS({
           });
           if (!response.ok) return null;
           const html = yield response.text();
-          const regex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
+          const regex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
           const match = regex.exec(html);
           if (match) {
             const p = match[1];
@@ -312,7 +312,7 @@ var require_upstream = __commonJS({
           });
           if (!response.ok) return null;
           const html = yield response.text();
-          const packedRegex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
+          const packedRegex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
           const match = packedRegex.exec(html);
           if (match) {
             const p = match[1];
@@ -745,6 +745,12 @@ ${pName}`;
       if (desc) titleText += ` | ${desc}`;
       if (language) titleText += `
 \u{1F5E3}\uFE0F ${language}`;
+      const behaviorHints = stream.behaviorHints || {};
+      if (stream.headers) {
+        behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
+        behaviorHints.proxyHeaders.request = stream.headers;
+        delete stream.headers;
+      }
       return __spreadProps(__spreadValues({}, stream), {
         // Keep original properties
         name: finalName,
@@ -752,7 +758,8 @@ ${pName}`;
         // Ensure language is set for Stremio/Nuvio sorting
         language,
         // Mark as formatted
-        _nuvio_formatted: true
+        _nuvio_formatted: true,
+        behaviorHints
       });
     }
     module2.exports = { formatStream: formatStream2 };
@@ -968,7 +975,7 @@ function getTmdbIdFromImdb(imdbId, type) {
       if (!response.ok) return null;
       const data = yield response.json();
       if (type === "movie" && ((_a = data.movie_results) == null ? void 0 : _a.length) > 0) return data.movie_results[0].id;
-      if (type === "tv" && ((_b = data.tv_results) == null ? void 0 : _b.length) > 0) return data.tv_results[0].id;
+      if ((type === "tv" || type === "series") && ((_b = data.tv_results) == null ? void 0 : _b.length) > 0) return data.tv_results[0].id;
       return null;
     } catch (e) {
       console.error("[EuroStreaming] ID conversion error:", e);

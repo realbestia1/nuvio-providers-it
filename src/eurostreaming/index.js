@@ -216,7 +216,7 @@ function getTmdbIdFromImdb(imdbId, type) {
       if (!response.ok) return null;
       const data = yield response.json();
       if (type === "movie" && ((_a = data.movie_results) == null ? void 0 : _a.length) > 0) return data.movie_results[0].id;
-      if (type === "tv" && ((_b = data.tv_results) == null ? void 0 : _b.length) > 0) return data.tv_results[0].id;
+      if ((type === "tv" || type === "series") && ((_b = data.tv_results) == null ? void 0 : _b.length) > 0) return data.tv_results[0].id;
       return null;
     } catch (e) {
       console.error("[EuroStreaming] ID conversion error:", e);

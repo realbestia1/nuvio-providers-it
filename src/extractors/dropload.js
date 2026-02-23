@@ -12,7 +12,7 @@ async function extractDropLoad(url, refererBase = null) {
     });
     if (!response.ok) return null;
     const html = await response.text();
-    const regex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
+    const regex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
     const match = regex.exec(html);
     if (match) {
       const p = match[1];

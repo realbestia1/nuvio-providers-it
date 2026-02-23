@@ -1,11 +1,11 @@
 {
   "name": "Nuvio IT Providers",
-  "version": "1.0.34",
+  "version": "1.0.35",
   "scrapers": [
     {
       "id": "nuvio-it-providers-eurostreaming",
       "name": "EuroStreaming",
-      "version": "1.0.29",
+      "version": "1.0.30",
       "description": "TV Series from EuroStreaming",
       "resources": ["stream"],
       "contentLanguage": ["it"],
@@ -18,7 +18,7 @@
     {
       "id": "nuvio-it-providers-guardahd",
       "name": "GuardaHD",
-      "version": "1.0.19",
+      "version": "1.0.20",
       "description": "Movies from GuardaHD",
       "resources": ["stream"],
       "contentLanguage": ["it"],
