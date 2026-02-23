@@ -93,9 +93,63 @@ ${pName}`;
   }
 });
 
+// src/quality_helper.js
+var require_quality_helper = __commonJS({
+  "src/quality_helper.js"(exports2, module2) {
+    var USER_AGENT2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+    function checkQualityFromPlaylist(_0) {
+      return __async(this, arguments, function* (url, headers = {}) {
+        try {
+          if (!url.includes(".m3u8")) return null;
+          const finalHeaders = __spreadValues({}, headers);
+          if (!finalHeaders["User-Agent"]) {
+            finalHeaders["User-Agent"] = USER_AGENT2;
+          }
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 3e3);
+          const response = yield fetch(url, {
+            headers: finalHeaders,
+            signal: controller.signal
+          });
+          clearTimeout(timeout);
+          if (!response.ok) return null;
+          const text = yield response.text();
+          const quality = checkQualityFromText2(text);
+          if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
+          return quality;
+        } catch (e) {
+          return null;
+        }
+      });
+    }
+    function checkQualityFromText2(text) {
+      if (!text) return null;
+      if (/RESOLUTION=\d+x2160/i.test(text) || /RESOLUTION=2160/i.test(text)) return "4K";
+      if (/RESOLUTION=\d+x1440/i.test(text) || /RESOLUTION=1440/i.test(text)) return "1440p";
+      if (/RESOLUTION=\d+x1080/i.test(text) || /RESOLUTION=1080/i.test(text)) return "1080p";
+      if (/RESOLUTION=\d+x720/i.test(text) || /RESOLUTION=720/i.test(text)) return "720p";
+      if (/RESOLUTION=\d+x480/i.test(text) || /RESOLUTION=480/i.test(text)) return "480p";
+      return null;
+    }
+    function getQualityFromUrl(url) {
+      if (!url) return null;
+      const urlPath = url.split("?")[0].toLowerCase();
+      if (urlPath.includes("4k") || urlPath.includes("2160")) return "4K";
+      if (urlPath.includes("1440") || urlPath.includes("2k")) return "1440p";
+      if (urlPath.includes("1080") || urlPath.includes("fhd")) return "1080p";
+      if (urlPath.includes("720") || urlPath.includes("hd")) return "720p";
+      if (urlPath.includes("480") || urlPath.includes("sd")) return "480p";
+      if (urlPath.includes("360")) return "360p";
+      return null;
+    }
+    module2.exports = { checkQualityFromPlaylist, getQualityFromUrl, checkQualityFromText: checkQualityFromText2 };
+  }
+});
+
 // src/streamingcommunity/index.js
 var BASE_URL = "https://vixsrc.to";
 var { formatStream } = require_formatter();
+var { checkQualityFromText } = require_quality_helper();
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 var COMMON_HEADERS = {
@@ -246,10 +300,8 @@ function getStreams(id, type, season, episode) {
           if (playlistResponse.ok) {
             const playlistText = yield playlistResponse.text();
             const hasItalian = /LANGUAGE="it"|LANGUAGE="ita"|NAME="Italian"|NAME="Ita"/i.test(playlistText);
-            const has1080p = /RESOLUTION=\d+x1080|RESOLUTION=1080/i.test(playlistText);
-            const has4k = /RESOLUTION=\d+x2160|RESOLUTION=2160/i.test(playlistText);
-            if (has4k) quality = "4K";
-            else if (has1080p) quality = "1080p";
+            const detected = checkQualityFromText(playlistText);
+            if (detected) quality = detected;
             if (hasItalian) {
               console.log(`[StreamingCommunity] Verified: Has Italian audio.`);
             } else {

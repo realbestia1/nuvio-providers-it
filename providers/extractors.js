@@ -1,4 +1,20 @@
+var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
@@ -355,10 +371,64 @@ var require_vidoza = __commonJS({
   }
 });
 
+// src/quality_helper.js
+var require_quality_helper = __commonJS({
+  "src/quality_helper.js"(exports2, module2) {
+    var USER_AGENT2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+    function checkQualityFromPlaylist(_0) {
+      return __async(this, arguments, function* (url, headers = {}) {
+        try {
+          if (!url.includes(".m3u8")) return null;
+          const finalHeaders = __spreadValues({}, headers);
+          if (!finalHeaders["User-Agent"]) {
+            finalHeaders["User-Agent"] = USER_AGENT2;
+          }
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 3e3);
+          const response = yield fetch(url, {
+            headers: finalHeaders,
+            signal: controller.signal
+          });
+          clearTimeout(timeout);
+          if (!response.ok) return null;
+          const text = yield response.text();
+          const quality = checkQualityFromText(text);
+          if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
+          return quality;
+        } catch (e) {
+          return null;
+        }
+      });
+    }
+    function checkQualityFromText(text) {
+      if (!text) return null;
+      if (/RESOLUTION=\d+x2160/i.test(text) || /RESOLUTION=2160/i.test(text)) return "4K";
+      if (/RESOLUTION=\d+x1440/i.test(text) || /RESOLUTION=1440/i.test(text)) return "1440p";
+      if (/RESOLUTION=\d+x1080/i.test(text) || /RESOLUTION=1080/i.test(text)) return "1080p";
+      if (/RESOLUTION=\d+x720/i.test(text) || /RESOLUTION=720/i.test(text)) return "720p";
+      if (/RESOLUTION=\d+x480/i.test(text) || /RESOLUTION=480/i.test(text)) return "480p";
+      return null;
+    }
+    function getQualityFromUrl(url) {
+      if (!url) return null;
+      const urlPath = url.split("?")[0].toLowerCase();
+      if (urlPath.includes("4k") || urlPath.includes("2160")) return "4K";
+      if (urlPath.includes("1440") || urlPath.includes("2k")) return "1440p";
+      if (urlPath.includes("1080") || urlPath.includes("fhd")) return "1080p";
+      if (urlPath.includes("720") || urlPath.includes("hd")) return "720p";
+      if (urlPath.includes("480") || urlPath.includes("sd")) return "480p";
+      if (urlPath.includes("360")) return "360p";
+      return null;
+    }
+    module2.exports = { checkQualityFromPlaylist, getQualityFromUrl, checkQualityFromText };
+  }
+});
+
 // src/extractors/vixcloud.js
 var require_vixcloud = __commonJS({
   "src/extractors/vixcloud.js"(exports2, module2) {
     var { USER_AGENT: USER_AGENT2 } = require_common();
+    var { checkQualityFromPlaylist } = require_quality_helper();
     function extractVixCloud2(url) {
       return __async(this, null, function* () {
         try {
@@ -411,14 +481,20 @@ var require_vixcloud = __commonJS({
             if (fhdMatch) {
               finalUrl += "&h=1";
             }
-            const urlObj = new URL(finalUrl);
-            if (!urlObj.pathname.endsWith(".m3u8")) {
-              urlObj.pathname += ".m3u8";
+            const parts = finalUrl.split("?");
+            finalUrl = parts[0] + ".m3u8";
+            if (parts.length > 1) {
+              finalUrl += "?" + parts.slice(1).join("?");
             }
-            finalUrl = urlObj.toString();
+            let quality = "Auto";
+            const detectedQuality = yield checkQualityFromPlaylist(finalUrl, {
+              "User-Agent": USER_AGENT2,
+              "Referer": "https://vixcloud.co/"
+            });
+            if (detectedQuality) quality = detectedQuality;
             streams.push({
               url: finalUrl,
-              quality: "Auto",
+              quality,
               type: "m3u8",
               headers: {
                 "User-Agent": USER_AGENT2,
@@ -437,53 +513,6 @@ var require_vixcloud = __commonJS({
   }
 });
 
-// src/extractors/deltabit.js
-var require_deltabit = __commonJS({
-  "src/extractors/deltabit.js"(exports2, module2) {
-    var { USER_AGENT: USER_AGENT2, unPack: unPack2 } = require_common();
-    function extractDeltaBit2(url) {
-      return __async(this, null, function* () {
-        try {
-          if (url.startsWith("//")) url = "https:" + url;
-          const response = yield fetch(url, {
-            headers: {
-              "User-Agent": USER_AGENT2
-            }
-          });
-          if (!response.ok) return null;
-          const html = yield response.text();
-          const packedRegex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/g;
-          let match;
-          let fileFallback = null;
-          while ((match = packedRegex.exec(html)) !== null) {
-            const p = match[1];
-            const a = parseInt(match[2]);
-            const c = parseInt(match[3]);
-            const k = match[4].split("|");
-            const unpacked = unPack2(p, a, c, k, null, {});
-            const fileMatch = unpacked.match(/file:\s*"(.*?)"/);
-            if (fileMatch) {
-              return fileMatch[1];
-            }
-            const srcMatch = unpacked.match(/src:\s*"(.*?)"/);
-            if (srcMatch && !fileFallback) {
-              fileFallback = srcMatch[1];
-            }
-          }
-          if (fileFallback) {
-            return fileFallback;
-          }
-          return null;
-        } catch (e) {
-          console.error("[Extractors] DeltaBit extraction error:", e);
-          return null;
-        }
-      });
-    }
-    module2.exports = { extractDeltaBit: extractDeltaBit2 };
-  }
-});
-
 // src/extractors/index.js
 var { extractMixDrop } = require_mixdrop();
 var { extractDropLoad } = require_dropload();
@@ -493,7 +522,6 @@ var { extractUqload } = require_uqload();
 var { extractUpstream } = require_upstream();
 var { extractVidoza } = require_vidoza();
 var { extractVixCloud } = require_vixcloud();
-var { extractDeltaBit } = require_deltabit();
 var { USER_AGENT, unPack } = require_common();
 module.exports = {
   extractMixDrop,
@@ -504,7 +532,6 @@ module.exports = {
   extractUpstream,
   extractVidoza,
   extractVixCloud,
-  extractDeltaBit,
   USER_AGENT,
   unPack
 };

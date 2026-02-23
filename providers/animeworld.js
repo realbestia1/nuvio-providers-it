@@ -258,9 +258,63 @@ ${pName}`;
   }
 });
 
+// src/quality_helper.js
+var require_quality_helper = __commonJS({
+  "src/quality_helper.js"(exports2, module2) {
+    var USER_AGENT2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+    function checkQualityFromPlaylist2(_0) {
+      return __async(this, arguments, function* (url, headers = {}) {
+        try {
+          if (!url.includes(".m3u8")) return null;
+          const finalHeaders = __spreadValues({}, headers);
+          if (!finalHeaders["User-Agent"]) {
+            finalHeaders["User-Agent"] = USER_AGENT2;
+          }
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 3e3);
+          const response = yield fetch(url, {
+            headers: finalHeaders,
+            signal: controller.signal
+          });
+          clearTimeout(timeout);
+          if (!response.ok) return null;
+          const text = yield response.text();
+          const quality = checkQualityFromText(text);
+          if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
+          return quality;
+        } catch (e) {
+          return null;
+        }
+      });
+    }
+    function checkQualityFromText(text) {
+      if (!text) return null;
+      if (/RESOLUTION=\d+x2160/i.test(text) || /RESOLUTION=2160/i.test(text)) return "4K";
+      if (/RESOLUTION=\d+x1440/i.test(text) || /RESOLUTION=1440/i.test(text)) return "1440p";
+      if (/RESOLUTION=\d+x1080/i.test(text) || /RESOLUTION=1080/i.test(text)) return "1080p";
+      if (/RESOLUTION=\d+x720/i.test(text) || /RESOLUTION=720/i.test(text)) return "720p";
+      if (/RESOLUTION=\d+x480/i.test(text) || /RESOLUTION=480/i.test(text)) return "480p";
+      return null;
+    }
+    function getQualityFromUrl(url) {
+      if (!url) return null;
+      const urlPath = url.split("?")[0].toLowerCase();
+      if (urlPath.includes("4k") || urlPath.includes("2160")) return "4K";
+      if (urlPath.includes("1440") || urlPath.includes("2k")) return "1440p";
+      if (urlPath.includes("1080") || urlPath.includes("fhd")) return "1080p";
+      if (urlPath.includes("720") || urlPath.includes("hd")) return "720p";
+      if (urlPath.includes("480") || urlPath.includes("sd")) return "480p";
+      if (urlPath.includes("360")) return "360p";
+      return null;
+    }
+    module2.exports = { checkQualityFromPlaylist: checkQualityFromPlaylist2, getQualityFromUrl, checkQualityFromText };
+  }
+});
+
 // src/animeworld/index.js
 var { getTmdbFromKitsu, isAnime } = require_tmdb_helper();
 var { formatStream } = require_formatter();
+var { checkQualityFromPlaylist } = require_quality_helper();
 var BASE_URL = "https://www.animeworld.ac";
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -1273,22 +1327,25 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
               const infoData = yield infoRes.json();
               if (infoData.grabber) {
                 let quality = "auto";
-                if (infoData.grabber.includes("1080p")) quality = "1080p";
-                else if (infoData.grabber.includes("720p")) quality = "720p";
-                else if (infoData.grabber.includes("480p")) quality = "480p";
-                else if (infoData.grabber.includes("360p")) quality = "360p";
+                if (infoData.grabber.includes(".m3u8")) {
+                  const playlistQuality = yield checkQualityFromPlaylist(infoData.grabber, {
+                    "User-Agent": USER_AGENT,
+                    "Referer": animeUrl
+                  });
+                  if (playlistQuality) quality = playlistQuality;
+                }
+                if (quality === "auto") {
+                  if (infoData.grabber.includes("1080p")) quality = "1080p";
+                  else if (infoData.grabber.includes("720p")) quality = "720p";
+                  else if (infoData.grabber.includes("480p")) quality = "480p";
+                  else if (infoData.grabber.includes("360p")) quality = "360p";
+                }
                 let host = "";
                 try {
                   const urlObj = new URL(infoData.grabber);
                   host = urlObj.hostname.replace("www.", "");
                   if (host.includes("sweetpixel")) host = "SweetPixel";
                   else if (host.includes("stream")) host = "Stream";
-                  if (host.includes("vixsrc") || host.includes("vixcloud")) {
-                    if (!urlObj.pathname.endsWith(".m3u8")) {
-                      urlObj.pathname += ".m3u8";
-                      infoData.grabber = urlObj.toString();
-                    }
-                  }
                 } catch (e) {
                 }
                 const baseName = isDub ? "AnimeWorld (ITA)" : "AnimeWorld (SUB ITA)";

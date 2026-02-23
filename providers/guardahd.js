@@ -374,11 +374,65 @@ var require_vidoza = __commonJS({
   }
 });
 
+// src/quality_helper.js
+var require_quality_helper = __commonJS({
+  "src/quality_helper.js"(exports2, module2) {
+    var USER_AGENT2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+    function checkQualityFromPlaylist2(_0) {
+      return __async(this, arguments, function* (url, headers = {}) {
+        try {
+          if (!url.includes(".m3u8")) return null;
+          const finalHeaders = __spreadValues({}, headers);
+          if (!finalHeaders["User-Agent"]) {
+            finalHeaders["User-Agent"] = USER_AGENT2;
+          }
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 3e3);
+          const response = yield fetch(url, {
+            headers: finalHeaders,
+            signal: controller.signal
+          });
+          clearTimeout(timeout);
+          if (!response.ok) return null;
+          const text = yield response.text();
+          const quality = checkQualityFromText(text);
+          if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
+          return quality;
+        } catch (e) {
+          return null;
+        }
+      });
+    }
+    function checkQualityFromText(text) {
+      if (!text) return null;
+      if (/RESOLUTION=\d+x2160/i.test(text) || /RESOLUTION=2160/i.test(text)) return "4K";
+      if (/RESOLUTION=\d+x1440/i.test(text) || /RESOLUTION=1440/i.test(text)) return "1440p";
+      if (/RESOLUTION=\d+x1080/i.test(text) || /RESOLUTION=1080/i.test(text)) return "1080p";
+      if (/RESOLUTION=\d+x720/i.test(text) || /RESOLUTION=720/i.test(text)) return "720p";
+      if (/RESOLUTION=\d+x480/i.test(text) || /RESOLUTION=480/i.test(text)) return "480p";
+      return null;
+    }
+    function getQualityFromUrl2(url) {
+      if (!url) return null;
+      const urlPath = url.split("?")[0].toLowerCase();
+      if (urlPath.includes("4k") || urlPath.includes("2160")) return "4K";
+      if (urlPath.includes("1440") || urlPath.includes("2k")) return "1440p";
+      if (urlPath.includes("1080") || urlPath.includes("fhd")) return "1080p";
+      if (urlPath.includes("720") || urlPath.includes("hd")) return "720p";
+      if (urlPath.includes("480") || urlPath.includes("sd")) return "480p";
+      if (urlPath.includes("360")) return "360p";
+      return null;
+    }
+    module2.exports = { checkQualityFromPlaylist: checkQualityFromPlaylist2, getQualityFromUrl: getQualityFromUrl2, checkQualityFromText };
+  }
+});
+
 // src/extractors/vixcloud.js
 var require_vixcloud = __commonJS({
   "src/extractors/vixcloud.js"(exports2, module2) {
     var { USER_AGENT: USER_AGENT2 } = require_common();
-    function extractVixCloud2(url) {
+    var { checkQualityFromPlaylist: checkQualityFromPlaylist2 } = require_quality_helper();
+    function extractVixCloud(url) {
       return __async(this, null, function* () {
         try {
           const response = yield fetch(url, {
@@ -430,14 +484,20 @@ var require_vixcloud = __commonJS({
             if (fhdMatch) {
               finalUrl += "&h=1";
             }
-            const urlObj = new URL(finalUrl);
-            if (!urlObj.pathname.endsWith(".m3u8")) {
-              urlObj.pathname += ".m3u8";
+            const parts = finalUrl.split("?");
+            finalUrl = parts[0] + ".m3u8";
+            if (parts.length > 1) {
+              finalUrl += "?" + parts.slice(1).join("?");
             }
-            finalUrl = urlObj.toString();
+            let quality = "Auto";
+            const detectedQuality = yield checkQualityFromPlaylist2(finalUrl, {
+              "User-Agent": USER_AGENT2,
+              "Referer": "https://vixcloud.co/"
+            });
+            if (detectedQuality) quality = detectedQuality;
             streams.push({
               url: finalUrl,
-              quality: "Auto",
+              quality,
               type: "m3u8",
               headers: {
                 "User-Agent": USER_AGENT2,
@@ -452,54 +512,7 @@ var require_vixcloud = __commonJS({
         }
       });
     }
-    module2.exports = { extractVixCloud: extractVixCloud2 };
-  }
-});
-
-// src/extractors/deltabit.js
-var require_deltabit = __commonJS({
-  "src/extractors/deltabit.js"(exports2, module2) {
-    var { USER_AGENT: USER_AGENT2, unPack } = require_common();
-    function extractDeltaBit2(url) {
-      return __async(this, null, function* () {
-        try {
-          if (url.startsWith("//")) url = "https:" + url;
-          const response = yield fetch(url, {
-            headers: {
-              "User-Agent": USER_AGENT2
-            }
-          });
-          if (!response.ok) return null;
-          const html = yield response.text();
-          const packedRegex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/g;
-          let match;
-          let fileFallback = null;
-          while ((match = packedRegex.exec(html)) !== null) {
-            const p = match[1];
-            const a = parseInt(match[2]);
-            const c = parseInt(match[3]);
-            const k = match[4].split("|");
-            const unpacked = unPack(p, a, c, k, null, {});
-            const fileMatch = unpacked.match(/file:\s*"(.*?)"/);
-            if (fileMatch) {
-              return fileMatch[1];
-            }
-            const srcMatch = unpacked.match(/src:\s*"(.*?)"/);
-            if (srcMatch && !fileFallback) {
-              fileFallback = srcMatch[1];
-            }
-          }
-          if (fileFallback) {
-            return fileFallback;
-          }
-          return null;
-        } catch (e) {
-          console.error("[Extractors] DeltaBit extraction error:", e);
-          return null;
-        }
-      });
-    }
-    module2.exports = { extractDeltaBit: extractDeltaBit2 };
+    module2.exports = { extractVixCloud };
   }
 });
 
@@ -513,8 +526,7 @@ var require_extractors = __commonJS({
     var { extractUqload } = require_uqload();
     var { extractUpstream } = require_upstream();
     var { extractVidoza } = require_vidoza();
-    var { extractVixCloud: extractVixCloud2 } = require_vixcloud();
-    var { extractDeltaBit: extractDeltaBit2 } = require_deltabit();
+    var { extractVixCloud } = require_vixcloud();
     var { USER_AGENT: USER_AGENT2, unPack } = require_common();
     module2.exports = {
       extractMixDrop: extractMixDrop2,
@@ -524,8 +536,7 @@ var require_extractors = __commonJS({
       extractUqload,
       extractUpstream,
       extractVidoza,
-      extractVixCloud: extractVixCloud2,
-      extractDeltaBit: extractDeltaBit2,
+      extractVixCloud,
       USER_AGENT: USER_AGENT2,
       unPack
     };
@@ -772,9 +783,10 @@ var __async2 = (__this, __arguments, generator) => {
 var BASE_URL = "https://guardahd.stream";
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 var USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
-var { extractMixDrop, extractDropLoad, extractSuperVideo, extractVixCloud, extractDeltaBit } = require_extractors();
+var { extractMixDrop, extractDropLoad, extractSuperVideo } = require_extractors();
 var { getTmdbFromKitsu } = require_tmdb_helper();
 var { formatStream } = require_formatter();
+var { checkQualityFromPlaylist, getQualityFromUrl } = require_quality_helper();
 function getQualityFromName(qualityStr) {
   if (!qualityStr) return "Unknown";
   const quality = qualityStr.toUpperCase();
@@ -930,97 +942,75 @@ function getStreams(id, type, season, episode) {
         links.push({ url: match[1], name: "Alternative" });
       }
       const displayName = normalizedType === "movie" ? title : `${title} ${season}x${episode}`;
-      const processUrl = (link) => __async2(null, null, function* () {
+      const processUrl = (link) => __async(null, null, function* () {
         let streamUrl = link.url;
         if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;
-        if (streamUrl.includes("mixdrop") || streamUrl.includes("m1xdrop")) {
-          console.log(`[GuardaHD] Attempting MixDrop extraction for ${streamUrl}`);
-          const extracted = yield extractMixDrop(streamUrl);
-          if (extracted && extracted.url) {
-            let quality = "HD";
-            const lowerUrl = extracted.url.toLowerCase();
-            if (lowerUrl.includes("4k") || lowerUrl.includes("2160")) quality = "4K";
-            else if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
-            else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
-            else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
-            else if (lowerUrl.includes("360")) quality = "360p";
-            const normalizedQuality = getQualityFromName(quality);
-            streams.push({
-              name: `GuardaHD - MixDrop`,
-              title: displayName,
-              url: extracted.url,
-              headers: extracted.headers,
-              quality: normalizedQuality,
-              type: "direct"
-            });
-          }
-        } else if (streamUrl.includes("dropload")) {
-          console.log(`[GuardaHD] Attempting DropLoad extraction for ${streamUrl}`);
-          const extracted = yield extractDropLoad(streamUrl);
-          if (extracted && extracted.url) {
-            let quality = "HD";
-            const lowerUrl = extracted.url.toLowerCase();
-            if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
-            else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
-            else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
-            else if (lowerUrl.includes("360")) quality = "360p";
-            const normalizedQuality = getQualityFromName(quality);
-            streams.push({
-              name: `GuardaHD - DropLoad`,
-              title: displayName,
-              url: extracted.url,
-              headers: extracted.headers,
-              quality: normalizedQuality,
-              type: "direct"
-            });
-          }
-        } else if (streamUrl.includes("supervideo")) {
-          console.log(`[GuardaHD] Attempting SuperVideo extraction for ${streamUrl}`);
-          const extracted = yield extractSuperVideo(streamUrl);
-          if (extracted) {
-            let quality = "HD";
-            const lowerUrl = extracted.toLowerCase();
-            if (lowerUrl.includes("4k") || lowerUrl.includes("2160")) quality = "4K";
-            else if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
-            else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
-            else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
-            else if (lowerUrl.includes("360")) quality = "360p";
-            const normalizedQuality = getQualityFromName(quality);
-            streams.push({
-              name: `GuardaHD - SuperVideo`,
-              title: displayName,
-              url: extracted,
-              quality: normalizedQuality,
-              type: "direct"
-            });
-          }
-        } else if (streamUrl.includes("vixcloud") || streamUrl.includes("vixsrc") || streamUrl.includes("vidoza")) {
-          console.log(`[GuardaHD] Attempting VixCloud extraction for ${streamUrl}`);
-          const extracted = yield extractVixCloud(streamUrl);
-          if (extracted && extracted.length > 0) {
-            extracted.forEach((s) => {
+        try {
+          if (streamUrl.includes("mixdrop") || streamUrl.includes("m1xdrop")) {
+            console.log(`[GuardaHD] Attempting MixDrop extraction for ${streamUrl}`);
+            const extracted = yield extractMixDrop(streamUrl);
+            if (extracted && extracted.url) {
+              let quality = "HD";
+              const playlistQuality = yield checkQualityFromPlaylist(extracted.url, extracted.headers);
+              if (playlistQuality) quality = playlistQuality;
+              else {
+                const urlQuality = getQualityFromUrl(extracted.url);
+                if (urlQuality) quality = urlQuality;
+              }
+              const normalizedQuality = getQualityFromName(quality);
               streams.push({
-                name: `GuardaHD - VixCloud`,
+                name: `GuardaHD - MixDrop`,
                 title: displayName,
-                url: s.url,
-                headers: s.headers,
-                quality: s.quality || "Auto",
-                type: s.type || "m3u8"
+                url: extracted.url,
+                headers: extracted.headers,
+                quality: normalizedQuality,
+                type: "direct"
               });
-            });
+            }
+          } else if (streamUrl.includes("dropload")) {
+            console.log(`[GuardaHD] Attempting DropLoad extraction for ${streamUrl}`);
+            const extracted = yield extractDropLoad(streamUrl);
+            if (extracted && extracted.url) {
+              let quality = "HD";
+              const playlistQuality = yield checkQualityFromPlaylist(extracted.url, extracted.headers);
+              if (playlistQuality) quality = playlistQuality;
+              else {
+                const urlQuality = getQualityFromUrl(extracted.url);
+                if (urlQuality) quality = urlQuality;
+              }
+              const normalizedQuality = getQualityFromName(quality);
+              streams.push({
+                name: `GuardaHD - DropLoad`,
+                title: displayName,
+                url: extracted.url,
+                headers: extracted.headers,
+                quality: normalizedQuality,
+                type: "direct"
+              });
+            }
+          } else if (streamUrl.includes("supervideo")) {
+            console.log(`[GuardaHD] Attempting SuperVideo extraction for ${streamUrl}`);
+            const extracted = yield extractSuperVideo(streamUrl);
+            if (extracted) {
+              let quality = "HD";
+              const playlistQuality = yield checkQualityFromPlaylist(extracted);
+              if (playlistQuality) quality = playlistQuality;
+              else {
+                const urlQuality = getQualityFromUrl(extracted);
+                if (urlQuality) quality = urlQuality;
+              }
+              const normalizedQuality = getQualityFromName(quality);
+              streams.push({
+                name: `GuardaHD - SuperVideo`,
+                title: displayName,
+                url: extracted,
+                quality: normalizedQuality,
+                type: "direct"
+              });
+            }
           }
-        } else if (streamUrl.includes("serversicuro") || streamUrl.includes("deltabit")) {
-          console.log(`[GuardaHD] Attempting DeltaBit extraction for ${streamUrl}`);
-          const extracted = yield extractDeltaBit(streamUrl);
-          if (extracted) {
-            streams.push({
-              name: `GuardaHD - DeltaBit`,
-              title: displayName,
-              url: extracted,
-              type: "m3u8",
-              quality: "Auto"
-            });
-          }
+        } catch (e) {
+          console.error("[GuardaHD] Process URL error:", e);
         }
       });
       yield Promise.all(links.map((link) => processUrl(link)));

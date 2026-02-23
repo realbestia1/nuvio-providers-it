@@ -374,10 +374,64 @@ var require_vidoza = __commonJS({
   }
 });
 
+// src/quality_helper.js
+var require_quality_helper = __commonJS({
+  "src/quality_helper.js"(exports2, module2) {
+    var USER_AGENT2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+    function checkQualityFromPlaylist2(_0) {
+      return __async(this, arguments, function* (url, headers = {}) {
+        try {
+          if (!url.includes(".m3u8")) return null;
+          const finalHeaders = __spreadValues({}, headers);
+          if (!finalHeaders["User-Agent"]) {
+            finalHeaders["User-Agent"] = USER_AGENT2;
+          }
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 3e3);
+          const response = yield fetch(url, {
+            headers: finalHeaders,
+            signal: controller.signal
+          });
+          clearTimeout(timeout);
+          if (!response.ok) return null;
+          const text = yield response.text();
+          const quality = checkQualityFromText(text);
+          if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
+          return quality;
+        } catch (e) {
+          return null;
+        }
+      });
+    }
+    function checkQualityFromText(text) {
+      if (!text) return null;
+      if (/RESOLUTION=\d+x2160/i.test(text) || /RESOLUTION=2160/i.test(text)) return "4K";
+      if (/RESOLUTION=\d+x1440/i.test(text) || /RESOLUTION=1440/i.test(text)) return "1440p";
+      if (/RESOLUTION=\d+x1080/i.test(text) || /RESOLUTION=1080/i.test(text)) return "1080p";
+      if (/RESOLUTION=\d+x720/i.test(text) || /RESOLUTION=720/i.test(text)) return "720p";
+      if (/RESOLUTION=\d+x480/i.test(text) || /RESOLUTION=480/i.test(text)) return "480p";
+      return null;
+    }
+    function getQualityFromUrl(url) {
+      if (!url) return null;
+      const urlPath = url.split("?")[0].toLowerCase();
+      if (urlPath.includes("4k") || urlPath.includes("2160")) return "4K";
+      if (urlPath.includes("1440") || urlPath.includes("2k")) return "1440p";
+      if (urlPath.includes("1080") || urlPath.includes("fhd")) return "1080p";
+      if (urlPath.includes("720") || urlPath.includes("hd")) return "720p";
+      if (urlPath.includes("480") || urlPath.includes("sd")) return "480p";
+      if (urlPath.includes("360")) return "360p";
+      return null;
+    }
+    module2.exports = { checkQualityFromPlaylist: checkQualityFromPlaylist2, getQualityFromUrl, checkQualityFromText };
+  }
+});
+
 // src/extractors/vixcloud.js
 var require_vixcloud = __commonJS({
   "src/extractors/vixcloud.js"(exports2, module2) {
     var { USER_AGENT: USER_AGENT2 } = require_common();
+    var { checkQualityFromPlaylist: checkQualityFromPlaylist2 } = require_quality_helper();
     function extractVixCloud(url) {
       return __async(this, null, function* () {
         try {
@@ -430,14 +484,20 @@ var require_vixcloud = __commonJS({
             if (fhdMatch) {
               finalUrl += "&h=1";
             }
-            const urlObj = new URL(finalUrl);
-            if (!urlObj.pathname.endsWith(".m3u8")) {
-              urlObj.pathname += ".m3u8";
+            const parts = finalUrl.split("?");
+            finalUrl = parts[0] + ".m3u8";
+            if (parts.length > 1) {
+              finalUrl += "?" + parts.slice(1).join("?");
             }
-            finalUrl = urlObj.toString();
+            let quality = "Auto";
+            const detectedQuality = yield checkQualityFromPlaylist2(finalUrl, {
+              "User-Agent": USER_AGENT2,
+              "Referer": "https://vixcloud.co/"
+            });
+            if (detectedQuality) quality = detectedQuality;
             streams.push({
               url: finalUrl,
-              quality: "Auto",
+              quality,
               type: "m3u8",
               headers: {
                 "User-Agent": USER_AGENT2,
@@ -456,53 +516,6 @@ var require_vixcloud = __commonJS({
   }
 });
 
-// src/extractors/deltabit.js
-var require_deltabit = __commonJS({
-  "src/extractors/deltabit.js"(exports2, module2) {
-    var { USER_AGENT: USER_AGENT2, unPack: unPack2 } = require_common();
-    function extractDeltaBit2(url) {
-      return __async(this, null, function* () {
-        try {
-          if (url.startsWith("//")) url = "https:" + url;
-          const response = yield fetch(url, {
-            headers: {
-              "User-Agent": USER_AGENT2
-            }
-          });
-          if (!response.ok) return null;
-          const html = yield response.text();
-          const packedRegex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/g;
-          let match;
-          let fileFallback = null;
-          while ((match = packedRegex.exec(html)) !== null) {
-            const p = match[1];
-            const a = parseInt(match[2]);
-            const c = parseInt(match[3]);
-            const k = match[4].split("|");
-            const unpacked = unPack2(p, a, c, k, null, {});
-            const fileMatch = unpacked.match(/file:\s*"(.*?)"/);
-            if (fileMatch) {
-              return fileMatch[1];
-            }
-            const srcMatch = unpacked.match(/src:\s*"(.*?)"/);
-            if (srcMatch && !fileFallback) {
-              fileFallback = srcMatch[1];
-            }
-          }
-          if (fileFallback) {
-            return fileFallback;
-          }
-          return null;
-        } catch (e) {
-          console.error("[Extractors] DeltaBit extraction error:", e);
-          return null;
-        }
-      });
-    }
-    module2.exports = { extractDeltaBit: extractDeltaBit2 };
-  }
-});
-
 // src/extractors/index.js
 var require_extractors = __commonJS({
   "src/extractors/index.js"(exports2, module2) {
@@ -514,7 +527,6 @@ var require_extractors = __commonJS({
     var { extractUpstream: extractUpstream2 } = require_upstream();
     var { extractVidoza: extractVidoza2 } = require_vidoza();
     var { extractVixCloud } = require_vixcloud();
-    var { extractDeltaBit: extractDeltaBit2 } = require_deltabit();
     var { USER_AGENT: USER_AGENT2, unPack: unPack2 } = require_common();
     module2.exports = {
       extractMixDrop: extractMixDrop2,
@@ -525,7 +537,6 @@ var require_extractors = __commonJS({
       extractUpstream: extractUpstream2,
       extractVidoza: extractVidoza2,
       extractVixCloud,
-      extractDeltaBit: extractDeltaBit2,
       USER_AGENT: USER_AGENT2,
       unPack: unPack2
     };
@@ -791,7 +802,8 @@ var __async2 = (__this, __arguments, generator) => {
 var BASE_URL = "https://eurostreaming.luxe";
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 var USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
-var { extractMixDrop, extractDropLoad, extractSuperVideo, extractStreamTape, extractVidoza, extractUqload, extractUpstream, unPack, extractDeltaBit } = require_extractors();
+var { extractMixDrop, extractDropLoad, extractSuperVideo, extractStreamTape, extractVidoza, extractUqload, extractUpstream } = require_extractors();
+var { checkQualityFromPlaylist } = require_quality_helper();
 var { getSeasonEpisodeFromAbsolute, getTmdbFromKitsu } = require_tmdb_helper();
 var { formatStream } = require_formatter();
 function getQualityFromName(qualityStr) {
@@ -850,6 +862,33 @@ function getShowInfo(tmdbId, type) {
       return yield response.json();
     } catch (e) {
       console.error("[EuroStreaming] TMDB error:", e);
+      return null;
+    }
+  });
+}
+function extractDeltaBit(url) {
+  return __async2(this, null, function* () {
+    try {
+      if (url.startsWith("//")) url = "https:" + url;
+      const response = yield fetch(url);
+      if (!response.ok) return null;
+      const html = yield response.text();
+      const packedRegex = /eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
+      const match = packedRegex.exec(html);
+      if (match) {
+        const p = match[1];
+        const a = parseInt(match[2]);
+        const c = parseInt(match[3]);
+        const k = match[4].split("|");
+        const unpacked = unPack(p, a, c, k, null, {});
+        const fileMatch = unpacked.match(/file:\s*"(.*?)"/);
+        if (fileMatch) {
+          return fileMatch[1];
+        }
+      }
+      return null;
+    } catch (e) {
+      console.error("[EuroStreaming] DeltaBit extraction error:", e);
       return null;
     }
   });
@@ -1274,12 +1313,17 @@ function getStreams(id, type, season, episode, showInfo) {
                   const extracted = yield extractMixDrop(streamUrl);
                   if (extracted && extracted.url) {
                     let quality = "HD";
-                    const lowerUrl = extracted.url.toLowerCase();
-                    if (lowerUrl.includes("4k") || lowerUrl.includes("2160")) quality = "4K";
-                    else if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
-                    else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
-                    else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
-                    else if (lowerUrl.includes("360")) quality = "360p";
+                    if (extracted.url.includes(".m3u8")) {
+                      const detected = yield checkQualityFromPlaylist(extracted.url, extracted.headers || {});
+                      if (detected) quality = detected;
+                    } else {
+                      const lowerUrl = extracted.url.toLowerCase();
+                      if (lowerUrl.includes("4k") || lowerUrl.includes("2160")) quality = "4K";
+                      else if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
+                      else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
+                      else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
+                      else if (lowerUrl.includes("360")) quality = "360p";
+                    }
                     const normalizedQuality = getQualityFromName(quality);
                     streams.push({
                       name: `EuroStreaming - MixDrop`,
@@ -1294,11 +1338,16 @@ function getStreams(id, type, season, episode, showInfo) {
                   const extracted = yield extractDropLoad(streamUrl);
                   if (extracted && extracted.url) {
                     let quality = "HD";
-                    const lowerUrl = extracted.url.toLowerCase();
-                    if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
-                    else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
-                    else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
-                    else if (lowerUrl.includes("360")) quality = "360p";
+                    if (extracted.url.includes(".m3u8")) {
+                      const detected = yield checkQualityFromPlaylist(extracted.url, extracted.headers || {});
+                      if (detected) quality = detected;
+                    } else {
+                      const lowerUrl = extracted.url.toLowerCase();
+                      if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
+                      else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
+                      else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
+                      else if (lowerUrl.includes("360")) quality = "360p";
+                    }
                     const normalizedQuality = getQualityFromName(quality);
                     streams.push({
                       name: `EuroStreaming - DropLoad`,
@@ -1313,12 +1362,17 @@ function getStreams(id, type, season, episode, showInfo) {
                   const extracted = yield extractSuperVideo(streamUrl);
                   if (extracted) {
                     let quality = "HD";
-                    const lowerUrl = extracted.toLowerCase();
-                    if (lowerUrl.includes("4k") || lowerUrl.includes("2160")) quality = "4K";
-                    else if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
-                    else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
-                    else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
-                    else if (lowerUrl.includes("360")) quality = "360p";
+                    if (extracted.includes(".m3u8")) {
+                      const detected = yield checkQualityFromPlaylist(extracted);
+                      if (detected) quality = detected;
+                    } else {
+                      const lowerUrl = extracted.toLowerCase();
+                      if (lowerUrl.includes("4k") || lowerUrl.includes("2160")) quality = "4K";
+                      else if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
+                      else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
+                      else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
+                      else if (lowerUrl.includes("360")) quality = "360p";
+                    }
                     const normalizedQuality = getQualityFromName(quality);
                     streams.push({
                       name: `EuroStreaming - SuperVideo`,
@@ -1332,12 +1386,17 @@ function getStreams(id, type, season, episode, showInfo) {
                   const extracted = yield extractDeltaBit(streamUrl);
                   if (extracted) {
                     let quality = "HD";
-                    const lowerUrl = extracted.toLowerCase();
-                    if (lowerUrl.includes("4k") || lowerUrl.includes("2160")) quality = "4K";
-                    else if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
-                    else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
-                    else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
-                    else if (lowerUrl.includes("360")) quality = "360p";
+                    if (extracted.includes(".m3u8")) {
+                      const detected = yield checkQualityFromPlaylist(extracted);
+                      if (detected) quality = detected;
+                    } else {
+                      const lowerUrl = extracted.toLowerCase();
+                      if (lowerUrl.includes("4k") || lowerUrl.includes("2160")) quality = "4K";
+                      else if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
+                      else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
+                      else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
+                      else if (lowerUrl.includes("360")) quality = "360p";
+                    }
                     const normalizedQuality = getQualityFromName(quality);
                     streams.push({
                       name: `EuroStreaming - DeltaBit`,
@@ -1351,12 +1410,17 @@ function getStreams(id, type, season, episode, showInfo) {
                   const extracted = yield extractVidoza(streamUrl);
                   if (extracted) {
                     let quality = "HD";
-                    const lowerUrl = extracted.toLowerCase();
-                    if (lowerUrl.includes("4k") || lowerUrl.includes("2160")) quality = "4K";
-                    else if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
-                    else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
-                    else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
-                    else if (lowerUrl.includes("360")) quality = "360p";
+                    if (extracted.includes(".m3u8")) {
+                      const detected = yield checkQualityFromPlaylist(extracted);
+                      if (detected) quality = detected;
+                    } else {
+                      const lowerUrl = extracted.toLowerCase();
+                      if (lowerUrl.includes("4k") || lowerUrl.includes("2160")) quality = "4K";
+                      else if (lowerUrl.includes("1080") || lowerUrl.includes("fhd")) quality = "1080p";
+                      else if (lowerUrl.includes("720") || lowerUrl.includes("hd")) quality = "720p";
+                      else if (lowerUrl.includes("480") || lowerUrl.includes("sd")) quality = "480p";
+                      else if (lowerUrl.includes("360")) quality = "360p";
+                    }
                     const normalizedQuality = getQualityFromName(quality);
                     streams.push({
                       name: `EuroStreaming - Vidoza`,
@@ -1369,33 +1433,48 @@ function getStreams(id, type, season, episode, showInfo) {
                 } else if (streamUrl.includes("uqload")) {
                   const extracted = yield extractUqload(streamUrl);
                   if (extracted) {
+                    let quality = "SD";
+                    if (extracted.includes(".m3u8")) {
+                      const detected = yield checkQualityFromPlaylist(extracted);
+                      if (detected) quality = detected;
+                    }
                     streams.push({
                       url: extracted,
                       name: "EuroStreaming - Uqload",
                       title: displayName,
-                      quality: "SD",
+                      quality: getQualityFromName(quality),
                       type: "direct"
                     });
                   }
                 } else if (streamUrl.includes("upstream")) {
                   const extracted = yield extractUpstream(streamUrl);
                   if (extracted && extracted.url) {
+                    let quality = "HD";
+                    if (extracted.url.includes(".m3u8")) {
+                      const detected = yield checkQualityFromPlaylist(extracted.url, extracted.headers || {});
+                      if (detected) quality = detected;
+                    }
                     streams.push({
                       url: extracted.url,
                       name: "EuroStreaming - Upstream",
                       title: displayName,
-                      quality: "HD",
+                      quality: getQualityFromName(quality),
                       type: "direct"
                     });
                   }
                 } else if (streamUrl.includes("streamtape")) {
                   const extracted = yield extractStreamTape(streamUrl);
                   if (extracted && extracted.url) {
+                    let quality = "HD";
+                    if (extracted.url.includes(".m3u8")) {
+                      const detected = yield checkQualityFromPlaylist(extracted.url, extracted.headers || {});
+                      if (detected) quality = detected;
+                    }
                     streams.push({
                       url: extracted.url,
                       name: "EuroStreaming - StreamTape",
                       title: displayName,
-                      quality: "HD",
+                      quality: getQualityFromName(quality),
                       type: "direct"
                     });
                   }
