@@ -52,7 +52,6 @@ global.fetch = async function(url, options = {}) {
 const providers = {
     animeunity: require('./src/animeunity/index.js'),
     animeworld: require('./src/animeworld/index.js'),
-    eurostreaming: require('./src/eurostreaming/index.js'),
     guardahd: require('./src/guardahd/index.js'),
     guardaserie: require('./src/guardaserie/index.js'),
     streamingcommunity: require('./providers/streamingcommunity.js')
@@ -60,7 +59,7 @@ const providers = {
 
 const builder = new addonBuilder({
     id: 'org.bestia.easystreams',
-    version: '1.0.1',
+    version: '1.0.2',
     name: 'Easy Streams',
     description: 'Italian Streams providers',
     catalogs: [],

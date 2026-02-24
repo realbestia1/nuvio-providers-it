@@ -1,33 +1,7 @@
 {
   "name": "EasyStreams",
-  "version": "1.0.44",
+  "version": "1.0.45",
   "scrapers": [
-    {
-      "id": "easystreams-eurostreaming",
-      "name": "EuroStreaming",
-      "version": "1.0.35",
-      "description": "TV Series from EuroStreaming",
-      "resources": [
-        "stream"
-      ],
-      "contentLanguage": [
-        "it"
-      ],
-      "formats": [
-        "mp4",
-        "m3u8"
-      ],
-      "idPrefixes": [
-        "tmdb:",
-        "tt",
-        "kitsu:"
-      ],
-      "filename": "providers/eurostreaming.js",
-      "supportedTypes": [
-        "tv"
-      ],
-      "enabled": true
-    },
     {
       "id": "easystreams-guardahd",
       "name": "GuardaHD",
@@ -82,7 +56,7 @@
     {
       "id": "easystreams-streamingcommunity",
       "name": "StreamingCommunity",
-      "version": "1.1.11",
+      "version": "1.1.12",
       "description": "Movies and Series from StreamingCommunity",
       "resources": [
         "stream"

@@ -359,10 +359,11 @@ function getStreams(id, type, season, episode) {
             const hasItalian = /LANGUAGE="it"|LANGUAGE="ita"|NAME="Italian"|NAME="Ita"/i.test(playlistText);
             const detected = checkQualityFromText(playlistText);
             if (detected) quality = detected;
-            if (hasItalian) {
-              console.log(`[StreamingCommunity] Verified: Has Italian audio.`);
+            const originalLanguageItalian = metadata && (metadata.original_language === "it" || metadata.original_language === "ita");
+            if (hasItalian || originalLanguageItalian) {
+              console.log(`[StreamingCommunity] Verified: Has Italian audio or original language is Italian.`);
             } else {
-              console.log(`[StreamingCommunity] No Italian audio found in playlist. Skipping.`);
+              console.log(`[StreamingCommunity] No Italian audio found in playlist and original language is not Italian. Skipping.`);
               return [];
             }
           } else {
