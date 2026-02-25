@@ -13,9 +13,22 @@ async function getTmdbFromKitsu(kitsuId) {
                 const apiResponse = await fetch(`${MAPPING_API_URL}/mapping/${id}`);
                 if (apiResponse.ok) {
                     const apiData = await apiResponse.json();
+
+                    // If we have TMDB ID directly, we're golden
                     if (apiData.tmdbId) {
-                        console.log(`[TMDB Helper] API Hit! Kitsu ${id} -> TMDB ${apiData.tmdbId}, Season ${apiData.season}`);
+                        console.log(`[TMDB Helper] API Hit (TMDB)! Kitsu ${id} -> TMDB ${apiData.tmdbId}, Season ${apiData.season} (Source: ${apiData.source})`);
                         return { tmdbId: apiData.tmdbId, season: apiData.season };
+                    }
+
+                    // NEW: If we have IMDb ID, use it to find TMDB ID immediately
+                    if (apiData.imdbId) {
+                        console.log(`[TMDB Helper] API Hit (IMDb)! Kitsu ${id} -> IMDb ${apiData.imdbId}, Season ${apiData.season} (Source: ${apiData.source})`);
+                        const findUrl = `https://api.themoviedb.org/3/find/${apiData.imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+                        const findResponse = await fetch(findUrl);
+                        const findData = await findResponse.json();
+
+                        if (findData.tv_results?.length > 0) return { tmdbId: findData.tv_results[0].id, season: apiData.season };
+                        else if (findData.movie_results?.length > 0) return { tmdbId: findData.movie_results[0].id, season: null };
                     }
                 }
             } catch (apiErr) {
