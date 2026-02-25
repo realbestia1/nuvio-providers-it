@@ -81,7 +81,7 @@ function formatStream(stream, providerName) {
     }
 
     const finalName = pName;
-    let finalTitle = quality || 'Stream';
+    let finalTitle = `📁 ${stream.title || 'Stream'}`;
     if (desc) finalTitle += ` | ${desc}`;
     if (language) finalTitle += ` | ${language}`;
 
