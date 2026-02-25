@@ -10,9 +10,9 @@ const TMDB_API_KEY = '68e094699525b18a70bab2f86b1fa706';
 
 function getQualityFromName(qualityStr) {
     if (!qualityStr) return 'Unknown';
-  
+
     const quality = qualityStr.toUpperCase();
-  
+
     // Map API quality values to normalized format
     if (quality === 'ORG' || quality === 'ORIGINAL') return 'Original';
     if (quality === '4K' || quality === '2160P') return '4K';
@@ -22,20 +22,20 @@ function getQualityFromName(qualityStr) {
     if (quality === '480P' || quality === 'SD') return '480p';
     if (quality === '360P') return '360p';
     if (quality === '240P') return '240p';
-  
+
     // Try to extract number from string and format consistently
     const match = qualityStr.match(/(\d{3,4})[pP]?/);
     if (match) {
-      const resolution = parseInt(match[1]);
-      if (resolution >= 2160) return '4K';
-      if (resolution >= 1440) return '1440p';
-      if (resolution >= 1080) return '1080p';
-      if (resolution >= 720) return '720p';
-      if (resolution >= 480) return '480p';
-      if (resolution >= 360) return '360p';
-      return '240p';
+        const resolution = parseInt(match[1]);
+        if (resolution >= 2160) return '4K';
+        if (resolution >= 1440) return '1440p';
+        if (resolution >= 1080) return '1080p';
+        if (resolution >= 720) return '720p';
+        if (resolution >= 480) return '480p';
+        if (resolution >= 360) return '360p';
+        return '240p';
     }
-  
+
     return 'Unknown';
 }
 
@@ -106,14 +106,14 @@ async function getStreams(id, type, season, episode) {
             const searchHtml = await response.text();
             const $ = cheerio.load(searchHtml);
             const results = [];
-             $('a.ss-title').each((i, el) => {
-                  results.push({
-                      title: $(el).text().trim(),
-                      url: $(el).attr('href')
-                  });
-              });
-              return results;
-          };
+            $('a.ss-title').each((i, el) => {
+                results.push({
+                    title: $(el).text().trim(),
+                    url: $(el).attr('href')
+                });
+            });
+            return results;
+        };
 
         let allResults = [];
         const queries = [title, originalTitle].filter(q => q && q.length > 2);
@@ -121,7 +121,7 @@ async function getStreams(id, type, season, episode) {
             const res = await searchProvider(q);
             allResults.push(...res);
         }
-        
+
         // Deduplicate results by URL
         allResults = Array.from(new Map(allResults.map(item => [item.url, item])).values());
 
@@ -140,24 +140,24 @@ async function getStreams(id, type, season, episode) {
                     if (!pageRes.ok) continue;
                     const pageHtml = await pageRes.text();
                     const $page = cheerio.load(pageHtml);
-                    
+
                     // Target the year specifically in the info box as suggested by user
                     let foundYear = null;
                     const infoBox = $page('.mvic-info');
-                    
+
                     // 1. Try "pubblicazione" link in info box
                     const yearLink = infoBox.find('p:contains("pubblicazione") a[href*="release-year"]');
                     if (yearLink.length) {
                         foundYear = yearLink.text().trim();
-                    } 
-                    
+                    }
+
                     // 2. Try meta tags (ISO date) - look specifically inside info box or head
                     if (!foundYear) {
                         const metaDate = $page('meta[content*="20"]').filter((i, el) => {
                             const content = $page(el).attr('content');
                             return content && /^20\d{2}-\d{2}-\d{2}/.test(content);
                         }).first().attr('content');
-                        
+
                         if (metaDate) {
                             foundYear = metaDate.substring(0, 4);
                         }
@@ -170,12 +170,12 @@ async function getStreams(id, type, season, episode) {
                             const isRelated = $page(el).closest('.mlw-related, footer, #footer').length > 0;
                             return !isRelated;
                         }).first();
-                        
+
                         if (globalYearLink.length) {
                             foundYear = globalYearLink.text().trim();
                         }
                     }
-                    
+
                     if (foundYear) {
                         if (foundYear === year) {
                             targetUrl = result.url;
@@ -204,13 +204,13 @@ async function getStreams(id, type, season, episode) {
             const pageRes = await fetch(targetUrl, { headers: { 'User-Agent': USER_AGENT } });
             const pageHtml = await pageRes.text();
             const $page = cheerio.load(pageHtml);
-            
+
             const seasonIndex = parseInt(season) - 1;
             const episodeIndex = parseInt(episode) - 1;
-            
+
             // Try different selectors for seasons
             let seasonDiv = $page('.les-content').eq(seasonIndex);
-            
+
             // If the structure is different (e.g. no .les-content but .tvseason)
             if (!seasonDiv.length) {
                 const seasonBlocks = $page('.tvseason');
@@ -218,18 +218,18 @@ async function getStreams(id, type, season, episode) {
                     seasonDiv = seasonBlocks.eq(seasonIndex).find('.les-content');
                 }
             }
-            
+
             if (!seasonDiv.length) {
                 console.log(`[Guardoserie] Season ${season} not found at ${targetUrl}`);
                 return [];
             }
-            
+
             const episodeA = seasonDiv.find('a').eq(episodeIndex);
             if (!episodeA.length) {
                 console.log(`[Guardoserie] Episode ${episode} not found in Season ${season}`);
                 return [];
             }
-            
+
             episodeUrl = episodeA.attr('href');
         }
 
@@ -237,10 +237,10 @@ async function getStreams(id, type, season, episode) {
         const finalRes = await fetch(episodeUrl, { headers: { 'User-Agent': USER_AGENT } });
         const finalHtml = await finalRes.text();
         const $final = cheerio.load(finalHtml);
-        
+
         const iframe = $final('iframe');
         const playerLink = iframe.attr('data-src') || iframe.attr('src');
-        
+
         if (!playerLink) {
             console.log(`[Guardoserie] No player iframe found`);
             return [];
@@ -260,7 +260,7 @@ async function getStreams(id, type, season, episode) {
                     if (detected) quality = detected;
                 }
                 const normalizedQuality = getQualityFromName(quality);
-                
+
                 streams.push(formatStream({
                     url: s.url,
                     headers: s.headers,

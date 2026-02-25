@@ -61,12 +61,6 @@ function formatStream(stream, providerName) {
         pName = `📡 ${pName}`;
     }
 
-    const finalName = quality || pName;
-
-    let titleText = `${title}\n${pName}`;
-    if (desc) titleText += ` | ${desc}`;
-    if (language) titleText += `\n🗣️ ${language}`;
-
     // Move headers to behaviorHints if present, but keep original for compatibility
     const behaviorHints = stream.behaviorHints || {};
     let finalHeaders = stream.headers;
@@ -86,10 +80,15 @@ function formatStream(stream, providerName) {
         behaviorHints.notWebReady = true;
     }
 
+    const finalName = pName;
+    let finalTitle = quality || 'Stream';
+    if (desc) finalTitle += ` | ${desc}`;
+    if (language) finalTitle += ` | ${language}`;
+
     return {
         ...stream, // Keep original properties
         name: finalName,
-        title: titleText,
+        title: finalTitle,
         // Ensure language is set for Stremio/Nuvio sorting
         language: language,
         // Mark as formatted

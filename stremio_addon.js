@@ -116,7 +116,7 @@ const providers = {
     guardahd: require('./src/guardahd/index.js'),
     guardaserie: require('./src/guardaserie/index.js'),
     guardoserie: require('./src/guardoserie/index.js'),
-    streamingcommunity: require('./providers/streamingcommunity.js')
+    streamingcommunity: require('./src/streamingcommunity/index.js')
 };
 
 const builder = new addonBuilder({
@@ -214,17 +214,27 @@ builder.defineStreamHandler(async ({ type, id }) => {
                     // Global filter for specific unwanted servers
                     return !server.includes('mixdrop') && !sName.includes('mixdrop') && !sTitle.includes('mixdrop');
                 })
-                .map(s => ({
-                    name: s.name,
-                    title: s.title,
-                    url: s.url,
-                    behaviorHints: {
-                        ...(s.behaviorHints || {}),
-                        notWebReady: true,
-                        bingeGroup: name // Consistent grouping by provider name
-                    },
-                    language: s.language
-                }));
+                .map(s => {
+                    // For Stremio, we want the quality as the main name if available
+                    // The formatter now returns name as provider name and title as description
+                    const displayQuality = s.quality ?
+                        (s.quality === '4K' ? '🔥4K UHD' :
+                            s.quality === '1440p' ? '✨ QHD' :
+                                s.quality === '1080p' ? '🚀 FHD' :
+                                    s.quality === '720p' ? '💿 HD' : s.quality) : 'Direct';
+
+                    return {
+                        name: displayQuality,
+                        title: s.title,
+                        url: s.url,
+                        behaviorHints: {
+                            ...(s.behaviorHints || {}),
+                            notWebReady: true,
+                            bingeGroup: name // Consistent grouping by provider name
+                        },
+                        language: s.language
+                    };
+                });
         } catch (e) {
             console.error(`[${name}] Error:`, e.message);
             return [];
