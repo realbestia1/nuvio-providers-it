@@ -83,12 +83,7 @@ async function getStreams(id, type, season, episode) {
         // Search helper
         const searchProvider = async (query) => {
             const searchUrl = `${BASE_URL}/wp-admin/admin-ajax.php`;
-            const params = new URLSearchParams({
-                s: query,
-                action: 'searchwp_live_search',
-                swpengine: 'default',
-                swpquery: query
-            });
+            const body = `s=${encodeURIComponent(query)}&action=searchwp_live_search&swpengine=default&swpquery=${encodeURIComponent(query)}`;
 
             const response = await fetch(searchUrl, {
                 method: 'POST',
@@ -98,7 +93,7 @@ async function getStreams(id, type, season, episode) {
                     'Origin': BASE_URL,
                     'Referer': `${BASE_URL}/`
                 },
-                body: params.toString()
+                body: body
             });
 
             if (!response.ok) return [];

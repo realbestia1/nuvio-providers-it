@@ -18,6 +18,40 @@ async function build() {
         await transpileProviders(providerNames, shouldMinify);
     } else {
         await buildSourceProviders(providerNames, shouldMinify);
+        // Always build the index bundle if no specific providers are specified
+        if (providerNames.length === 0 || providerNames.includes('index')) {
+            await buildIndexBundle(shouldMinify);
+        }
+    }
+}
+
+async function buildIndexBundle(minify = false) {
+    console.log('Building index bundle...');
+    const entryPoint = path.join(SRC_DIR, 'index.js');
+    const outFile = path.join(PROVIDERS_DIR, 'index.js');
+
+    if (!fs.existsSync(entryPoint)) {
+        console.warn('Skipping index bundle: src/index.js not found.');
+        return;
+    }
+
+    try {
+        await esbuild.build({
+            entryPoints: [entryPoint],
+            outfile: outFile,
+            bundle: true,
+            minify: minify,
+            platform: 'neutral',
+            target: ['es2016'],
+            format: 'cjs',
+            external: ['cheerio', 'cheerio-select'],
+            define: {
+                'process.env.NODE_ENV': minify ? '"production"' : '"development"'
+            }
+        });
+        console.log('✅ Built index bundle');
+    } catch (e) {
+        console.error('❌ Failed to build index bundle:', e.message);
     }
 }
 

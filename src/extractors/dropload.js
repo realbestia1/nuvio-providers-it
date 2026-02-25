@@ -3,7 +3,10 @@ const { USER_AGENT, unPack } = require('./common');
 async function extractDropLoad(url, refererBase = null) {
   try {
     if (url.startsWith("//")) url = "https:" + url;
-    if (!refererBase) refererBase = new URL(url).origin + "/";
+    if (!refererBase) {
+      const match = url.match(/^(https?:\/\/[^\/]+)/i);
+      refererBase = (match ? match[1] : '') + "/";
+    }
     const response = await fetch(url, {
       headers: {
         "User-Agent": USER_AGENT,
@@ -24,12 +27,16 @@ async function extractDropLoad(url, refererBase = null) {
       if (fileMatch) {
         let streamUrl = fileMatch[1];
         if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;
+        
+        const originMatch = url.match(/^(https?:\/\/[^\/]+)/i);
+        const origin = originMatch ? originMatch[1] : '';
+        
         return {
           url: streamUrl,
           headers: {
             "User-Agent": USER_AGENT,
             "Referer": url,
-            "Origin": new URL(url).origin
+            "Origin": origin
           }
         };
       }

@@ -6,7 +6,15 @@ const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML
  * @returns {string} The proxied URL or original URL
  */
 function getProxiedUrl(url) {
-  const proxyUrl = process.env.CF_PROXY_URL;
+  let proxyUrl = null;
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env.CF_PROXY_URL) {
+      proxyUrl = process.env.CF_PROXY_URL;
+    }
+  } catch (e) {
+    // process.env might throw in some RN environments
+  }
+  
   if (proxyUrl && url) {
     // Basic implementation: append target URL as a query parameter
     // You can customize this based on how your CF Worker is implemented

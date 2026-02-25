@@ -47,7 +47,13 @@ var require_common = __commonJS({
   "src/extractors/common.js"(exports2, module2) {
     var USER_AGENT2 = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
     function getProxiedUrl2(url) {
-      const proxyUrl = process.env.CF_PROXY_URL;
+      let proxyUrl = null;
+      try {
+        if (typeof process !== "undefined" && process.env && process.env.CF_PROXY_URL) {
+          proxyUrl = process.env.CF_PROXY_URL;
+        }
+      } catch (e) {
+      }
       if (proxyUrl && url) {
         const separator = proxyUrl.includes("?") ? "&" : "?";
         return `${proxyUrl}${separator}url=${encodeURIComponent(url)}`;
@@ -142,7 +148,10 @@ var require_dropload = __commonJS({
       return __async(this, null, function* () {
         try {
           if (url.startsWith("//")) url = "https:" + url;
-          if (!refererBase) refererBase = new URL(url).origin + "/";
+          if (!refererBase) {
+            const match2 = url.match(/^(https?:\/\/[^\/]+)/i);
+            refererBase = (match2 ? match2[1] : "") + "/";
+          }
           const response = yield fetch(url, {
             headers: {
               "User-Agent": USER_AGENT2,
@@ -163,12 +172,14 @@ var require_dropload = __commonJS({
             if (fileMatch) {
               let streamUrl = fileMatch[1];
               if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;
+              const originMatch = url.match(/^(https?:\/\/[^\/]+)/i);
+              const origin = originMatch ? originMatch[1] : "";
               return {
                 url: streamUrl,
                 headers: {
                   "User-Agent": USER_AGENT2,
                   "Referer": url,
-                  "Origin": new URL(url).origin
+                  "Origin": origin
                 }
               };
             }
@@ -7499,12 +7510,7 @@ function getStreams(id, type, season, episode) {
       console.log(`[Guardoserie] Searching for: ${title} / ${originalTitle} (${year})`);
       const searchProvider = (query) => __async(null, null, function* () {
         const searchUrl = `${BASE_URL}/wp-admin/admin-ajax.php`;
-        const params = new URLSearchParams({
-          s: query,
-          action: "searchwp_live_search",
-          swpengine: "default",
-          swpquery: query
-        });
+        const body = `s=${encodeURIComponent(query)}&action=searchwp_live_search&swpengine=default&swpquery=${encodeURIComponent(query)}`;
         const response = yield fetch(searchUrl, {
           method: "POST",
           headers: {
@@ -7513,7 +7519,7 @@ function getStreams(id, type, season, episode) {
             "Origin": BASE_URL,
             "Referer": `${BASE_URL}/`
           },
-          body: params.toString()
+          body
         });
         if (!response.ok) return [];
         const searchHtml = yield response.text();
