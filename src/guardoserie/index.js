@@ -144,15 +144,26 @@ async function getStreams(id, type, season, episode) {
                       .replace(/&#8217;/g, "'");
         };
 
-        let targetUrl = null;
-        for (const result of allResults) {
-            // Check title match first to avoid unnecessary fetches
-            const norm = (s) => decodeEntities(s).toLowerCase().replace(/[^a-z0-9]/g, '').replace('iltronodispade', 'gameofthrones');
-            const nTitle = norm(title);
-            const nOrig = norm(originalTitle || '');
-            const nResult = norm(result.title);
+        // Sort results: exact matches first
+        const norm = (s) => decodeEntities(s).toLowerCase().replace(/[^a-z0-9]/g, '').replace('iltronodispade', 'gameofthrones');
+        const nTitle = norm(title);
+        const nOrig = norm(originalTitle || '');
 
-            console.log(`[Guardoserie] Comparing: "${nResult}" vs "${nTitle}" or "${nOrig}"`);
+        allResults.sort((a, b) => {
+            const nA = norm(a.title);
+            const nB = norm(b.title);
+            const exactA = nA === nTitle || nA === nOrig;
+            const exactB = nB === nTitle || nB === nOrig;
+            if (exactA && !exactB) return -1;
+            if (!exactA && exactB) return 1;
+            return 0;
+        });
+
+        let targetUrl = null;
+        // Limit to top 10 results to avoid timeout while being thorough
+        for (const result of allResults.slice(0, 10)) {
+            // Check title match first to avoid unnecessary fetches
+            const nResult = norm(result.title);
 
             const isExactMatch = nResult === nTitle || nResult === nOrig;
             const isPartialMatch = nResult.includes(nTitle) || (nOrig && nResult.includes(nOrig));
@@ -300,7 +311,10 @@ async function getStreams(id, type, season, episode) {
 
         if (playerLink.includes('loadm')) {
             const domain = 'guardoserie.horse';
-            const extracted = await extractLoadm(getProxiedUrl(playerLink), domain);
+            console.log(`[Guardoserie] Extracting Loadm: ${playerLink}`);
+            // Do NOT proxy playerLink here, extractLoadm needs to parse the ID after '#'
+            const extracted = await extractLoadm(playerLink, domain);
+            console.log(`[Guardoserie] Loadm extraction results: ${extracted?.length || 0}`);
             for (const s of (extracted || [])) {
                 let quality = "HD";
                 if (s.url.includes('.m3u8')) {
@@ -320,7 +334,8 @@ async function getStreams(id, type, season, episode) {
                 }, 'Guardoserie'));
             }
         } else if (playerLink.includes('uqload')) {
-            const extracted = await extractUqload(getProxiedUrl(playerLink));
+            // Do NOT proxy playerLink here, extractUqload needs to parse the HTML first
+            const extracted = await extractUqload(playerLink);
             if (extracted && extracted.url) {
                 let quality = "HD";
                 const normalizedQuality = getQualityFromName(quality);
@@ -334,7 +349,8 @@ async function getStreams(id, type, season, episode) {
                 }, 'Guardoserie'));
             }
         } else if (playerLink.includes('dropload')) {
-            const extracted = await extractDropLoad(getProxiedUrl(playerLink));
+            // Do NOT proxy playerLink here, extractDropLoad needs to parse the HTML first
+            const extracted = await extractDropLoad(playerLink);
             if (extracted && extracted.url) {
                 let quality = "HD";
                 if (extracted.url.includes('.m3u8')) {

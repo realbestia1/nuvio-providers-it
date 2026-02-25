@@ -49,7 +49,9 @@ var require_common = __commonJS({
     function getProxiedUrl(url) {
       let proxyUrl = null;
       try {
-        if (typeof process !== "undefined" && process.env && process.env.CF_PROXY_URL) {
+        if (typeof global !== "undefined" && global.CF_PROXY_URL) {
+          proxyUrl = global.CF_PROXY_URL;
+        } else if (typeof process !== "undefined" && process.env && process.env.CF_PROXY_URL) {
           proxyUrl = process.env.CF_PROXY_URL;
         }
       } catch (e) {
@@ -280,12 +282,12 @@ var require_streamtape = __commonJS({
 // src/extractors/uqload.js
 var require_uqload = __commonJS({
   "src/extractors/uqload.js"(exports2, module2) {
-    var { USER_AGENT } = require_common();
+    var { USER_AGENT, getProxiedUrl } = require_common();
     function extractUqload(url, refererBase = "https://uqload.io/") {
       return __async(this, null, function* () {
         try {
           if (url.startsWith("//")) url = "https:" + url;
-          const response = yield fetch(url, {
+          const response = yield fetch(getProxiedUrl(url), {
             headers: {
               "User-Agent": USER_AGENT,
               "Referer": refererBase
@@ -7073,7 +7075,7 @@ var require_crypto_js = __commonJS({
 var require_loadm = __commonJS({
   "src/extractors/loadm.js"(exports2, module2) {
     var CryptoJS = require_crypto_js();
-    var { USER_AGENT } = require_common();
+    var { USER_AGENT, getProxiedUrl } = require_common();
     function extractLoadm(playerUrl, referer = "guardoserie.horse") {
       return __async(this, null, function* () {
         try {
@@ -7084,13 +7086,8 @@ var require_loadm = __commonJS({
           const apiUrl = `${baseUrl}api/v1/video`;
           const key = CryptoJS.enc.Utf8.parse("kiemtienmua911ca");
           const iv = CryptoJS.enc.Utf8.parse("1234567890oiuytr");
-          const params = new URLSearchParams({
-            id,
-            w: "2560",
-            h: "1440",
-            r: referer
-          });
-          const response = yield fetch(`${apiUrl}?${params.toString()}`, {
+          const queryParams = `id=${encodeURIComponent(id)}&w=2560&h=1440&r=${encodeURIComponent(referer)}`;
+          const response = yield fetch(getProxiedUrl(`${apiUrl}?${queryParams}`), {
             headers: {
               "User-Agent": USER_AGENT,
               "Referer": baseUrl,
@@ -7098,7 +7095,8 @@ var require_loadm = __commonJS({
             }
           });
           if (!response.ok) {
-            console.error(`[Loadm] API error: ${response.status}`);
+            const errorBody = yield response.text().catch(() => "");
+            console.error(`[Loadm] API error: ${response.status} | Body: ${errorBody.substring(0, 100)}`);
             return [];
           }
           const hexData = yield response.text();
@@ -10357,13 +10355,21 @@ var require_guardoserie = __commonJS({
           const decodeEntities = (str) => {
             return str.replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec)).replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#8211;/g, "-").replace(/&#8217;/g, "'");
           };
+          const norm = (s) => decodeEntities(s).toLowerCase().replace(/[^a-z0-9]/g, "").replace("iltronodispade", "gameofthrones");
+          const nTitle = norm(title);
+          const nOrig = norm(originalTitle || "");
+          allResults.sort((a, b) => {
+            const nA = norm(a.title);
+            const nB = norm(b.title);
+            const exactA = nA === nTitle || nA === nOrig;
+            const exactB = nB === nTitle || nB === nOrig;
+            if (exactA && !exactB) return -1;
+            if (!exactA && exactB) return 1;
+            return 0;
+          });
           let targetUrl = null;
-          for (const result of allResults) {
-            const norm = (s) => decodeEntities(s).toLowerCase().replace(/[^a-z0-9]/g, "").replace("iltronodispade", "gameofthrones");
-            const nTitle = norm(title);
-            const nOrig = norm(originalTitle || "");
+          for (const result of allResults.slice(0, 10)) {
             const nResult = norm(result.title);
-            console.log(`[Guardoserie] Comparing: "${nResult}" vs "${nTitle}" or "${nOrig}"`);
             const isExactMatch = nResult === nTitle || nResult === nOrig;
             const isPartialMatch = nResult.includes(nTitle) || nOrig && nResult.includes(nOrig);
             if (isExactMatch || isPartialMatch) {
@@ -10478,7 +10484,9 @@ var require_guardoserie = __commonJS({
           let streams = [];
           if (playerLink.includes("loadm")) {
             const domain = "guardoserie.horse";
-            const extracted = yield extractLoadm(getProxiedUrl(playerLink), domain);
+            console.log(`[Guardoserie] Extracting Loadm: ${playerLink}`);
+            const extracted = yield extractLoadm(playerLink, domain);
+            console.log(`[Guardoserie] Loadm extraction results: ${(extracted == null ? void 0 : extracted.length) || 0}`);
             for (const s of extracted || []) {
               let quality = "HD";
               if (s.url.includes(".m3u8")) {
@@ -10497,7 +10505,7 @@ var require_guardoserie = __commonJS({
               }, "Guardoserie"));
             }
           } else if (playerLink.includes("uqload")) {
-            const extracted = yield extractUqload(getProxiedUrl(playerLink));
+            const extracted = yield extractUqload(playerLink);
             if (extracted && extracted.url) {
               let quality = "HD";
               const normalizedQuality = getQualityFromName(quality);
@@ -10511,7 +10519,7 @@ var require_guardoserie = __commonJS({
               }, "Guardoserie"));
             }
           } else if (playerLink.includes("dropload")) {
-            const extracted = yield extractDropLoad(getProxiedUrl(playerLink));
+            const extracted = yield extractDropLoad(playerLink);
             if (extracted && extracted.url) {
               let quality = "HD";
               if (extracted.url.includes(".m3u8")) {

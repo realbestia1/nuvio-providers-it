@@ -1,9 +1,9 @@
-const { USER_AGENT } = require('./common');
+const { USER_AGENT, getProxiedUrl } = require('./common');
 
 async function extractUqload(url, refererBase = 'https://uqload.io/') {
   try {
     if (url.startsWith("//")) url = "https:" + url;
-    const response = await fetch(url, {
+    const response = await fetch(getProxiedUrl(url), {
       headers: {
         "User-Agent": USER_AGENT,
         "Referer": refererBase

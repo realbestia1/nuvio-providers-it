@@ -8,16 +8,19 @@ const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML
 function getProxiedUrl(url) {
   let proxyUrl = null;
   try {
-    if (typeof process !== 'undefined' && process.env && process.env.CF_PROXY_URL) {
+    // 1. Check global variable (set by stremio_addon.js)
+    if (typeof global !== 'undefined' && global.CF_PROXY_URL) {
+      proxyUrl = global.CF_PROXY_URL;
+    }
+    // 2. Check process.env (Node.js fallback)
+    else if (typeof process !== 'undefined' && process.env && process.env.CF_PROXY_URL) {
       proxyUrl = process.env.CF_PROXY_URL;
     }
   } catch (e) {
-    // process.env might throw in some RN environments
+    // Safety for some RN environments
   }
   
   if (proxyUrl && url) {
-    // Basic implementation: append target URL as a query parameter
-    // You can customize this based on how your CF Worker is implemented
     const separator = proxyUrl.includes('?') ? '&' : '?';
     return `${proxyUrl}${separator}url=${encodeURIComponent(url)}`;
   }

@@ -1,8 +1,11 @@
 const CryptoJS = require('crypto-js');
-const { USER_AGENT } = require('./common');
+const { USER_AGENT, getProxiedUrl } = require('./common');
 
 /**
  * Extractor for Loadm (loadm.cam)
+ * @param {string} playerUrl The player URL (e.g. https://loadm.cam/#qybu1k)
+ * @param {string} referer The referer domain (e.g. guardoserie.horse)
+ * @returns {Promise<Array>} Array of stream objects
  */
 async function extractLoadm(playerUrl, referer = 'guardoserie.horse') {
     try {
@@ -16,14 +19,9 @@ async function extractLoadm(playerUrl, referer = 'guardoserie.horse') {
         const key = CryptoJS.enc.Utf8.parse('kiemtienmua911ca');
         const iv = CryptoJS.enc.Utf8.parse('1234567890oiuytr');
 
-        const params = new URLSearchParams({
-            id: id,
-            w: '2560',
-            h: '1440',
-            r: referer
-        });
+        const queryParams = `id=${encodeURIComponent(id)}&w=2560&h=1440&r=${encodeURIComponent(referer)}`;
 
-        const response = await fetch(`${apiUrl}?${params.toString()}`, {
+        const response = await fetch(getProxiedUrl(`${apiUrl}?${queryParams}`), {
             headers: {
                 'User-Agent': USER_AGENT,
                 'Referer': baseUrl,
@@ -32,7 +30,8 @@ async function extractLoadm(playerUrl, referer = 'guardoserie.horse') {
         });
 
         if (!response.ok) {
-            console.error(`[Loadm] API error: ${response.status}`);
+            const errorBody = await response.text().catch(() => '');
+            console.error(`[Loadm] API error: ${response.status} | Body: ${errorBody.substring(0, 100)}`);
             return [];
         }
 

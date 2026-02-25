@@ -44,6 +44,12 @@ const express = require('express');
 const app = express();
 const path = require('path');
 
+// Set global proxy from env for all providers to use
+if (process.env.CF_PROXY_URL) {
+    global.CF_PROXY_URL = process.env.CF_PROXY_URL;
+    console.log(`[Proxy] Global CF_PROXY_URL set: ${global.CF_PROXY_URL}`);
+}
+
 // Performance Metrics
 const metrics = {
     requests: 0,
@@ -73,8 +79,8 @@ app.use((req, res, next) => {
 });
 
 // Global timeout configuration
-const FETCH_TIMEOUT = 5000; // 5 seconds for HTTP requests
-const PROVIDER_TIMEOUT = 15000; // 5 seconds for provider execution
+const FETCH_TIMEOUT = 10000; // 10 seconds for HTTP requests
+const PROVIDER_TIMEOUT = 15000; // 15 seconds for provider execution
 
 // Wrap global fetch to enforce timeout
 const originalFetch = global.fetch;
@@ -109,8 +115,15 @@ global.fetch = async function (url, options = {}) {
 };
 
 
-// Import unified provider bundle
-const { getStreams } = require('./providers/index.js');
+// Import providers
+const providers = {
+    animeunity: require('./src/animeunity/index.js'),
+    animeworld: require('./src/animeworld/index.js'),
+    guardahd: require('./src/guardahd/index.js'),
+    guardaserie: require('./src/guardaserie/index.js'),
+    guardoserie: require('./src/guardoserie/index.js'),
+    streamingcommunity: require('./src/streamingcommunity/index.js')
+};
 
 const builder = new addonBuilder({
     id: 'org.bestia.easystreams',
@@ -167,69 +180,135 @@ builder.defineStreamHandler(async ({ type, id }) => {
     // Providers: movie, tv
     const providerType = (type === 'movie') ? 'movie' : 'tv';
 
-    try {
-        console.log(`[MultiProvider] Searching...`);
+    const promises = Object.entries(providers).map(async ([name, provider]) => {
+        try {
+            if (typeof provider.getStreams !== 'function') return [];
 
-        let timeoutId;
-        const timeoutPromise = new Promise((resolve) => {
-            timeoutId = setTimeout(() => {
-                console.warn(`[MultiProvider] Timed out after ${PROVIDER_TIMEOUT}ms`);
-                resolve([]); // Resolve with empty array on timeout
-            }, PROVIDER_TIMEOUT);
-        });
+            console.log(`[${name}] Searching...`);
 
-        const providerPromise = (async () => {
-            try {
-                const streams = await getStreams(imdbId, providerType, season, episode);
-                console.log(`[MultiProvider] Found ${streams.length} total streams`);
-                return streams;
-            } catch (e) {
-                console.error(`[MultiProvider] Execution Error:`, e.message);
-                return [];
-            } finally {
-                if (timeoutId) clearTimeout(timeoutId);
-            }
-        })();
-
-        // Race between provider execution and timeout
-        let allStreams = await Promise.race([providerPromise, timeoutPromise]);
-
-        // Fase 2.3: Stream Processing
-        const processedStreams = allStreams
-            .filter(s => {
-                if (!s || !s.url) return false;
-                const server = (s.server || "").toLowerCase();
-                const sName = (s.name || "").toLowerCase();
-                const sTitle = (s.title || "").toLowerCase();
-                // Global filter for specific unwanted servers
-                return !server.includes('mixdrop') && !sName.includes('mixdrop') && !sTitle.includes('mixdrop');
-            })
-            .map(s => {
-                // For Stremio, we reconstruct the legacy multiline format using metadata
-                const nameUI = (s.qualityTag && s.qualityTag !== 'Unknown') ? s.qualityTag : (s.providerName || "EasyStreams");
-
-                let titleUI = `📁 ${s.originalTitle || 'Video'}\n${s.providerName || 'EasyStreams'}`;
-                if (s.description) titleUI += ` | ${s.description}`;
-                if (s.language) titleUI += `\n🗣️ ${s.language}`;
-
-                return {
-                    name: nameUI,
-                    title: titleUI,
-                    url: s.url,
-                    behaviorHints: {
-                        ...(s.behaviorHints || {}),
-                        notWebReady: true,
-                        bingeGroup: s.providerName || "EasyStreams" // Consistent grouping by provider name
-                    },
-                    language: s.language
-                };
+            let timeoutId;
+            const timeoutPromise = new Promise((resolve) => {
+                timeoutId = setTimeout(() => {
+                    console.warn(`[${name}] Timed out after ${PROVIDER_TIMEOUT}ms`);
+                    resolve([]); // Resolve with empty array on timeout
+                }, PROVIDER_TIMEOUT);
             });
 
-        return { streams: processedStreams };
-    } catch (error) {
-        console.error(`[Stremio] Global Error:`, error);
-        return { streams: [] };
-    }
+            const providerPromise = (async () => {
+                try {
+                    const streams = await provider.getStreams(imdbId, providerType, season, episode);
+                    console.log(`[${name}] Found ${streams.length} streams`);
+                    return streams;
+                } catch (e) {
+                    console.error(`[${name}] Execution Error:`, e.message);
+                    return [];
+                } finally {
+                    if (timeoutId) clearTimeout(timeoutId);
+                }
+            })();
+
+            // Race between provider execution and timeout
+            let streams = await Promise.race([providerPromise, timeoutPromise]);
+
+            // Fase 2.3: Stream Processing
+            return streams
+                .filter(s => {
+                    if (!s || !s.url) return false;
+                    const server = (s.server || "").toLowerCase();
+                    const sName = (s.name || "").toLowerCase();
+                    const sTitle = (s.title || "").toLowerCase();
+                    // Global filter for specific unwanted servers
+                    return !server.includes('mixdrop') && !sName.includes('mixdrop') && !sTitle.includes('mixdrop');
+                })
+                .map(s => {
+                    // For Stremio, we reconstruct the legacy multiline format using metadata
+                    const nameUI = (s.qualityTag && s.qualityTag !== 'Unknown') ? s.qualityTag : s.providerName;
+
+                    let titleUI = `📁 ${s.originalTitle}\n${s.providerName}`;
+                    if (s.description) titleUI += ` | ${s.description}`;
+                    if (s.language) titleUI += `\n🗣️ ${s.language}`;
+
+                    return {
+                        name: nameUI,
+                        title: titleUI,
+                        url: s.url,
+                        behaviorHints: {
+                            ...(s.behaviorHints || {}),
+                            notWebReady: true,
+                            bingeGroup: name // Consistent grouping by provider name
+                        },
+                        language: s.language
+                    };
+                });
+        } catch (e) {
+            console.error(`[${name}] Error:`, e.message);
+            return [];
+        }
+    });
+
+    const results = await Promise.allSettled(promises);
+    const streams = results
+        .filter(r => r.status === 'fulfilled')
+        .map(r => r.value)
+        .flat();
+
+    // Sort streams? Maybe by quality or provider preference?
+    // For now, just return them all.
+
+    // Filter out streams without URL
+    const validStreams = streams.filter(s => s.url);
+
+    // Sort: StreamingCommunity first, then Language (ITA > SUB ITA), then Quality Descending
+    validStreams.sort((a, b) => {
+        // 1. StreamingCommunity Priority
+        const providerA = a.behaviorHints?.bingeGroup || '';
+        const providerB = b.behaviorHints?.bingeGroup || '';
+
+        const isA_SC = providerA === 'streamingcommunity';
+        const isB_SC = providerB === 'streamingcommunity';
+
+        if (isA_SC && !isB_SC) return -1;
+        if (!isA_SC && isB_SC) return 1;
+
+        // 2. Language Priority (ITA > SUB ITA > Others)
+        const getLangScore = (stream) => {
+            const lang = stream.language || '';
+            if (lang === '🇮🇹') return 2;
+            if (lang === '🇯🇵') return 1;
+            return 0;
+        };
+
+        const langScoreA = getLangScore(a);
+        const langScoreB = getLangScore(b);
+
+        if (langScoreA !== langScoreB) {
+            return langScoreB - langScoreA; // Descending (2 > 1 > 0)
+        }
+
+        // 3. Quality Priority
+        const qualityOrder = {
+            '🔥4K UHD': 10,
+            '✨ QHD': 9,
+            '🚀 FHD': 8,
+            '💿 HD': 7,
+            '💩 Low Quality': 1
+        };
+
+        const getScore = (str) => {
+            for (const [k, v] of Object.entries(qualityOrder)) {
+                if (str.includes(k)) return v;
+            }
+            return 0;
+        };
+
+        const scoreA = getScore(a.name);
+        const scoreB = getScore(b.name);
+
+        return scoreB - scoreA; // Descending
+    });
+
+    console.log(`[Stremio] Returning ${validStreams.length} streams total.`);
+    return { streams: validStreams };
 });
 
 
@@ -239,7 +318,7 @@ const addonRouter = getRouter(addonInterface);
 // Custom Landing Page
 app.get('/', (req, res) => {
     const manifest = addonInterface.manifest;
-    const providerNames = ['StreamingCommunity', 'GuardaHD', 'Guardaserie', 'Guardoserie', 'AnimeUnity', 'AnimeWorld'];
+    const providerNames = Object.keys(providers);
     const providersHtml = providerNames.map(p => `<div class="provider-tag">${p}</div>`).join('');
 
     // Standard Stremio Landing Page Style
