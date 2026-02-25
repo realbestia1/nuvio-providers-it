@@ -7668,7 +7668,7 @@ function getStreams(id, type, season, episode) {
       const displayName = type === "tv" || type === "series" ? `${title} ${season}x${episode}` : title;
       let streams = [];
       if (playerLink.includes("loadm")) {
-        const domain = new URL(BASE_URL).hostname;
+        const domain = "guardoserie.horse";
         const extracted = yield extractLoadm(getProxiedUrl(playerLink), domain);
         for (const s of extracted || []) {
           let quality = "HD";

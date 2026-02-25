@@ -304,7 +304,7 @@ async function getStreams(id, type, season, episode) {
         let streams = [];
 
         if (playerLink.includes('loadm')) {
-            const domain = new URL(BASE_URL).hostname;
+            const domain = 'guardoserie.horse';
             const extracted = await extractLoadm(getProxiedUrl(playerLink), domain);
             for (const s of (extracted || [])) {
                 let quality = "HD";
