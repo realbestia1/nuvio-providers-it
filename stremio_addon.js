@@ -215,11 +215,11 @@ builder.defineStreamHandler(async ({ type, id }) => {
                     return !server.includes('mixdrop') && !sName.includes('mixdrop') && !sTitle.includes('mixdrop');
                 })
                 .map(s => {
-                    // For Stremio, we reconstruct the legacy multiline format
-                    const nameUI = (s._quality && s._quality !== 'Unknown') ? s._quality : s._pName;
+                    // For Stremio, we reconstruct the legacy multiline format using metadata
+                    const nameUI = (s.qualityTag && s.qualityTag !== 'Unknown') ? s.qualityTag : s.providerName;
 
-                    let titleUI = `📁 ${s._rawTitle}\n${s._pName}`;
-                    if (s._desc) titleUI += ` | ${s._desc}`;
+                    let titleUI = `📁 ${s.originalTitle}\n${s.providerName}`;
+                    if (s.description) titleUI += ` | ${s.description}`;
                     if (s.language) titleUI += `\n🗣️ ${s.language}`;
 
                     return {
