@@ -25,14 +25,56 @@ if (!global.fetch) {
     global.Response = fetch.Response;
 }
 
+const https = require('https');
+const http = require('http');
+
+// Connection pooling configuration
+const agentOptions = {
+    keepAlive: true,
+    maxSockets: 50,
+    timeout: 30000,
+    keepAliveMsecs: 30000
+};
+
+const httpsAgent = new https.Agent(agentOptions);
+const httpAgent = new http.Agent(agentOptions);
+
 const { addonBuilder, serveHTTP, getRouter } = require('stremio-addon-sdk');
 const express = require('express');
 const app = express();
 const path = require('path');
 
+// Performance Metrics
+const metrics = {
+    requests: 0,
+    totalResponseTime: 0,
+    errors: 0
+};
+
+// Monitoring Middleware
+app.use((req, res, next) => {
+    const start = Date.now();
+    metrics.requests++;
+
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        metrics.totalResponseTime += duration;
+
+        if (res.statusCode >= 400) metrics.errors++;
+
+        // Log every 50 requests
+        if (metrics.requests % 50 === 0) {
+            const avgTime = metrics.totalResponseTime / metrics.requests;
+            const errorRate = (metrics.errors / metrics.requests) * 100;
+            console.log(`[Metrics] Req: ${metrics.requests} | Avg: ${avgTime.toFixed(0)}ms | Errors: ${errorRate.toFixed(1)}%`);
+        }
+    });
+    next();
+});
+
 // Global timeout configuration
-const FETCH_TIMEOUT = 15000; // 15 seconds for HTTP requests
-const PROVIDER_TIMEOUT = 25000; // 25 seconds for provider execution
+const FETCH_TIMEOUT = 5000; // 5 seconds for HTTP requests
+const PROVIDER_TIMEOUT = 15000; // 5 seconds for provider execution
 
 // Wrap global fetch to enforce timeout
 const originalFetch = global.fetch;
@@ -48,8 +90,10 @@ global.fetch = async function (url, options = {}) {
     }, options.timeout || FETCH_TIMEOUT);
 
     try {
+        const agent = url.startsWith('https') ? httpsAgent : httpAgent;
         const response = await originalFetch(url, {
             ...options,
+            agent,
             signal: controller.signal
         });
         return response;
@@ -158,17 +202,16 @@ builder.defineStreamHandler(async ({ type, id }) => {
             })();
 
             // Race between provider execution and timeout
-            const streams = await Promise.race([providerPromise, timeoutPromise]);
+            let streams = await Promise.race([providerPromise, timeoutPromise]);
 
-            // Streams are already formatted by the providers using formatStream (shared logic)
-            // Just filter out nulls or invalid streams if any remain
-            // Filter MixDrop for Stremio only
+            // Fase 2.3: Stream Processing
             return streams
                 .filter(s => {
                     if (!s || !s.url) return false;
                     const server = (s.server || "").toLowerCase();
                     const sName = (s.name || "").toLowerCase();
                     const sTitle = (s.title || "").toLowerCase();
+                    // Global filter for specific unwanted servers
                     return !server.includes('mixdrop') && !sName.includes('mixdrop') && !sTitle.includes('mixdrop');
                 })
                 .map(s => ({
@@ -178,7 +221,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
                     behaviorHints: {
                         ...(s.behaviorHints || {}),
                         notWebReady: true,
-                        bingeGroup: name
+                        bingeGroup: name // Consistent grouping by provider name
                     },
                     language: s.language
                 }));
@@ -188,8 +231,11 @@ builder.defineStreamHandler(async ({ type, id }) => {
         }
     });
 
-    const results = await Promise.all(promises);
-    const streams = results.flat();
+    const results = await Promise.allSettled(promises);
+    const streams = results
+        .filter(r => r.status === 'fulfilled')
+        .map(r => r.value)
+        .flat();
 
     // Sort streams? Maybe by quality or provider preference?
     // For now, just return them all.
@@ -525,7 +571,19 @@ app.get('/', (req, res) => {
 app.use('/', addonRouter);
 
 const PORT = process.env.PORT || 7000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`Stremio Addon running at http://localhost:${PORT}`);
+});
+
+// Graceful Shutdown
+process.on('SIGTERM', () => {
+    console.log('[Shutdown] SIGTERM received. Closing server...');
+    server.close(() => {
+        console.log('[Shutdown] Server closed.');
+        httpsAgent.destroy();
+        httpAgent.destroy();
+        console.log('[Shutdown] Agents destroyed. Exiting.');
+        process.exit(0);
+    });
 });
 
