@@ -46,7 +46,7 @@ var __async = (__this, __arguments, generator) => {
 var require_common = __commonJS({
   "src/extractors/common.js"(exports2, module2) {
     var USER_AGENT2 = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
-    function getProxiedUrl(url) {
+    function getProxiedUrl2(url) {
       const proxyUrl = process.env.CF_PROXY_URL;
       if (proxyUrl && url) {
         const separator = proxyUrl.includes("?") ? "&" : "?";
@@ -80,7 +80,7 @@ var require_common = __commonJS({
     module2.exports = {
       USER_AGENT: USER_AGENT2,
       unPack,
-      getProxiedUrl
+      getProxiedUrl: getProxiedUrl2
     };
   }
 });
@@ -187,7 +187,7 @@ var require_dropload = __commonJS({
 // src/extractors/supervideo.js
 var require_supervideo = __commonJS({
   "src/extractors/supervideo.js"(exports2, module2) {
-    var { USER_AGENT: USER_AGENT2, unPack, getProxiedUrl } = require_common();
+    var { USER_AGENT: USER_AGENT2, unPack, getProxiedUrl: getProxiedUrl2 } = require_common();
     function extractSuperVideo(url, refererBase = null) {
       return __async(this, null, function* () {
         try {
@@ -195,7 +195,7 @@ var require_supervideo = __commonJS({
           const id = url.split("/").pop();
           const embedUrl = `https://supervideo.tv/e/${id}`;
           if (!refererBase) refererBase = "https://guardahd.stream/";
-          const proxiedUrl = getProxiedUrl(embedUrl);
+          const proxiedUrl = getProxiedUrl2(embedUrl);
           let response = yield fetch(proxiedUrl, {
             headers: {
               "User-Agent": USER_AGENT2,
@@ -7426,7 +7426,7 @@ var require_tmdb_helper = __commonJS({
 });
 
 // src/guardoserie/index.js
-var { USER_AGENT } = require_common();
+var { USER_AGENT, getProxiedUrl } = require_common();
 var { extractLoadm, extractUqload, extractDropLoad } = require_extractors();
 var { formatStream } = require_formatter();
 var { getTmdbFromKitsu } = require_tmdb_helper();
@@ -7559,7 +7559,12 @@ function getStreams(id, type, season, episode) {
         const isPartialMatch = nResult.includes(nTitle) || nOrig && nResult.includes(nOrig);
         if (isExactMatch || isPartialMatch) {
           try {
-            const pageRes = yield fetch(result.url, { headers: { "User-Agent": USER_AGENT } });
+            const pageRes = yield fetch(getProxiedUrl(result.url), { headers: {
+              "User-Agent": USER_AGENT,
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+              "Referer": `${BASE_URL}/`
+            } });
             if (!pageRes.ok) continue;
             const pageHtml = yield pageRes.text();
             let foundYear = null;
@@ -7605,7 +7610,12 @@ function getStreams(id, type, season, episode) {
       }
       let episodeUrl = targetUrl;
       if (type === "tv" || type === "series") {
-        const pageRes = yield fetch(targetUrl, { headers: { "User-Agent": USER_AGENT } });
+        const pageRes = yield fetch(getProxiedUrl(targetUrl), { headers: {
+          "User-Agent": USER_AGENT,
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+          "Referer": `${BASE_URL}/`
+        } });
         const pageHtml = yield pageRes.text();
         const seasonIndex = parseInt(season) - 1;
         const episodeIndex = parseInt(episode) - 1;
@@ -7632,7 +7642,12 @@ function getStreams(id, type, season, episode) {
         }
       }
       console.log(`[Guardoserie] Found episode/movie URL: ${episodeUrl}`);
-      const finalRes = yield fetch(episodeUrl, { headers: { "User-Agent": USER_AGENT } });
+      const finalRes = yield fetch(getProxiedUrl(episodeUrl), { headers: {
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": `${BASE_URL}/`
+      } });
       const finalHtml = yield finalRes.text();
       const iframeMatches = finalHtml.match(/<iframe[^>]+(?:src|data-src)="([^"]+)"/ig);
       let playerLink = null;
@@ -7654,16 +7669,16 @@ function getStreams(id, type, season, episode) {
       let streams = [];
       if (playerLink.includes("loadm")) {
         const domain = new URL(BASE_URL).hostname;
-        const extracted = yield extractLoadm(playerLink, domain);
+        const extracted = yield extractLoadm(getProxiedUrl(playerLink), domain);
         for (const s of extracted || []) {
           let quality = "HD";
           if (s.url.includes(".m3u8")) {
-            const detected = yield checkQualityFromPlaylist(s.url, s.headers || {});
+            const detected = yield checkQualityFromPlaylist(getProxiedUrl(s.url), s.headers || {});
             if (detected) quality = detected;
           }
           const normalizedQuality = getQualityFromName(quality);
           streams.push(formatStream({
-            url: s.url,
+            url: getProxiedUrl(s.url),
             headers: s.headers,
             name: `Guardoserie - Loadm`,
             title: displayName,
@@ -7673,12 +7688,12 @@ function getStreams(id, type, season, episode) {
           }, "Guardoserie"));
         }
       } else if (playerLink.includes("uqload")) {
-        const extracted = yield extractUqload(playerLink);
+        const extracted = yield extractUqload(getProxiedUrl(playerLink));
         if (extracted && extracted.url) {
           let quality = "HD";
           const normalizedQuality = getQualityFromName(quality);
           streams.push(formatStream({
-            url: extracted.url,
+            url: getProxiedUrl(extracted.url),
             headers: extracted.headers,
             name: `Guardoserie - Uqload`,
             title: displayName,
@@ -7687,16 +7702,16 @@ function getStreams(id, type, season, episode) {
           }, "Guardoserie"));
         }
       } else if (playerLink.includes("dropload")) {
-        const extracted = yield extractDropLoad(playerLink);
+        const extracted = yield extractDropLoad(getProxiedUrl(playerLink));
         if (extracted && extracted.url) {
           let quality = "HD";
           if (extracted.url.includes(".m3u8")) {
-            const detected = yield checkQualityFromPlaylist(extracted.url, extracted.headers || {});
+            const detected = yield checkQualityFromPlaylist(getProxiedUrl(extracted.url), extracted.headers || {});
             if (detected) quality = detected;
           }
           const normalizedQuality = getQualityFromName(quality);
           streams.push(formatStream({
-            url: extracted.url,
+            url: getProxiedUrl(extracted.url),
             headers: extracted.headers,
             name: `Guardoserie - DropLoad`,
             title: displayName,
