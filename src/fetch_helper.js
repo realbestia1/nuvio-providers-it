@@ -1,26 +1,10 @@
 
 const FETCH_TIMEOUT = 30000; // 30 seconds
 
-let originalFetch = global.fetch;
-
-// Polyfill if needed
-if (!originalFetch) {
-    try {
-        const nodeFetch = require('node-fetch');
-        originalFetch = nodeFetch;
-        global.fetch = nodeFetch;
-        global.Headers = nodeFetch.Headers;
-        global.Request = nodeFetch.Request;
-        global.Response = nodeFetch.Response;
-    } catch (e) {
-        console.warn("No fetch implementation found and node-fetch is not available!");
-    }
-}
-
-const fetchWithTimeout = async function (url, options = {}) {
-    // If a signal is already provided, respect it
-    if (options.signal) {
-        return originalFetch(url, options);
+async function fetchWithTimeout(url, options = {}) {
+    // If global fetch doesn't exist, we can't do much in a browser/RN env
+    if (typeof fetch === 'undefined') {
+        throw new Error("No fetch implementation found!");
     }
 
     const controller = new AbortController();
@@ -29,7 +13,7 @@ const fetchWithTimeout = async function (url, options = {}) {
     }, options.timeout || FETCH_TIMEOUT);
 
     try {
-        const response = await originalFetch(url, {
+        const response = await fetch(url, {
             ...options,
             signal: controller.signal
         });
@@ -42,9 +26,6 @@ const fetchWithTimeout = async function (url, options = {}) {
     } finally {
         clearTimeout(timeoutId);
     }
-};
-
-// Override global fetch so it applies to all calls
-global.fetch = fetchWithTimeout;
+}
 
 module.exports = { fetchWithTimeout };

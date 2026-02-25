@@ -89,11 +89,11 @@ function formatStream(stream, providerName) {
         ...stream, // Keep original properties
         name: finalName,
         title: finalTitle,
-        // Metadata for Stremio UI reconstruction
-        _pName: pName,
-        _quality: quality,
-        _desc: desc,
-        _rawTitle: stream.title || 'Stream',
+        // Metadata for Stremio UI reconstruction (safer names for RN)
+        providerName: pName,
+        qualityTag: quality,
+        description: desc,
+        originalTitle: stream.title || 'Stream',
         // Ensure language is set for Stremio/Nuvio sorting
         language: language,
         // Mark as formatted

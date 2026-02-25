@@ -73,12 +73,6 @@ var require_formatter = __commonJS({
       if (pName) {
         pName = `\u{1F4E1} ${pName}`;
       }
-      const finalName = quality || pName;
-      let titleText = `${title}
-${pName}`;
-      if (desc) titleText += ` | ${desc}`;
-      if (language) titleText += `
-\u{1F5E3}\uFE0F ${language}`;
       const behaviorHints = stream.behaviorHints || {};
       let finalHeaders = stream.headers;
       if (behaviorHints.proxyHeaders && behaviorHints.proxyHeaders.request) {
@@ -92,10 +86,19 @@ ${pName}`;
         behaviorHints.headers = finalHeaders;
         behaviorHints.notWebReady = true;
       }
+      const finalName = pName;
+      let finalTitle = `\u{1F4C1} ${stream.title || "Stream"}`;
+      if (desc) finalTitle += ` | ${desc}`;
+      if (language) finalTitle += ` | ${language}`;
       return __spreadProps(__spreadValues({}, stream), {
         // Keep original properties
         name: finalName,
-        title: titleText,
+        title: finalTitle,
+        // Metadata for Stremio UI reconstruction (safer names for RN)
+        providerName: pName,
+        qualityTag: quality,
+        description: desc,
+        originalTitle: stream.title || "Stream",
         // Ensure language is set for Stremio/Nuvio sorting
         language,
         // Mark as formatted
@@ -113,30 +116,17 @@ ${pName}`;
 var require_fetch_helper = __commonJS({
   "src/fetch_helper.js"(exports2, module2) {
     var FETCH_TIMEOUT = 3e4;
-    var originalFetch = global.fetch;
-    if (!originalFetch) {
-      try {
-        const nodeFetch = require("node-fetch");
-        originalFetch = nodeFetch;
-        global.fetch = nodeFetch;
-        global.Headers = nodeFetch.Headers;
-        global.Request = nodeFetch.Request;
-        global.Response = nodeFetch.Response;
-      } catch (e) {
-        console.warn("No fetch implementation found and node-fetch is not available!");
-      }
-    }
-    var fetchWithTimeout = function(_0) {
+    function fetchWithTimeout(_0) {
       return __async(this, arguments, function* (url, options = {}) {
-        if (options.signal) {
-          return originalFetch(url, options);
+        if (typeof fetch === "undefined") {
+          throw new Error("No fetch implementation found!");
         }
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
           controller.abort();
         }, options.timeout || FETCH_TIMEOUT);
         try {
-          const response = yield originalFetch(url, __spreadProps(__spreadValues({}, options), {
+          const response = yield fetch(url, __spreadProps(__spreadValues({}, options), {
             signal: controller.signal
           }));
           return response;
@@ -149,8 +139,7 @@ var require_fetch_helper = __commonJS({
           clearTimeout(timeoutId);
         }
       });
-    };
-    global.fetch = fetchWithTimeout;
+    }
     module2.exports = { fetchWithTimeout };
   }
 });
