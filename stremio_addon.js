@@ -244,7 +244,7 @@ if (ADDON_MAPPING_CACHE_ENABLED && typeof tmdbHelper.getTmdbFromKitsu === 'funct
 
         const mappingPromise = (async () => {
             const resolved = await originalGetTmdbFromKitsu(kitsuId);
-            if (resolved && typeof resolved === 'object') {
+            if (resolved && typeof resolved === 'object' && resolved.tmdbId) {
                 setCachedMapping(cacheKey, cloneMappingResult(resolved));
             }
             return resolved;
@@ -487,7 +487,11 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
     console.log(`[Stremio] Returning ${validStreams.length} streams total.`);
     const responsePayload = { streams: validStreams };
-    setCachedStreamResponse(requestKey, responsePayload);
+    if (validStreams.length > 0) {
+        setCachedStreamResponse(requestKey, responsePayload);
+    } else {
+        console.log(`[Stremio] Skipping cache for failed/empty result: ${requestKey}`);
+    }
     return responsePayload;
     })();
 
