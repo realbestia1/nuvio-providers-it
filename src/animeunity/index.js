@@ -886,7 +886,7 @@ async function getStreams(id, type, season, episode) {
             candidates = candidates.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
         }
 
-        // Strategy 1: If season > 1, try specific search "Title Season" and "Season Name"
+        // Strategy 1: If season > 1, build a broad season-aware pool from season-name + numeric + base queries.
         if (season > 1) {
             const searchQueries = [
                 `${title} ${season}`,
@@ -898,6 +898,16 @@ async function getStreams(id, type, season, episode) {
             if (originalTitle && originalTitle !== title) {
                 searchQueries.push(`${originalTitle} ${season}`);
             }
+
+            const seasonStrategyCandidates = [];
+            const addRelevantSeasonCandidates = (results, query) => {
+                if (!results || results.length === 0) return 0;
+                const relevantRes = results.filter(c => isRelevantSeasonCandidateLocal(c, query));
+                if (relevantRes.length > 0) {
+                    seasonStrategyCandidates.push(...relevantRes);
+                }
+                return relevantRes.length;
+            };
 
             // Try TMDB Season Name with priority: English, then Italian
             const seasonNames = [];
@@ -938,31 +948,36 @@ async function getStreams(id, type, season, episode) {
                 for (const query of seasonQueries) {
                     console.log(`[AnimeUnity] Specific Season Name search: ${query}`);
                     const res = await searchAnime(query);
-                    if (res && res.length > 0) {
-                        const relevantRes = res.filter(c => isRelevantSeasonCandidateLocal(c, query));
-                        if (relevantRes.length > 0) {
-                            console.log(`[AnimeUnity] Found matches for season name: ${query}`);
-                            candidates = relevantRes;
-                            seasonNameMatch = true;
-                            break;
-                        }
+                    const added = addRelevantSeasonCandidates(res, query);
+                    if (added > 0) {
+                        console.log(`[AnimeUnity] Found matches for season name: ${query}`);
+                        seasonNameMatch = true;
+                        break;
                     }
                 }
                 if (seasonNameMatch) break;
             }
 
-            if (!seasonNameMatch) {
-                for (const query of searchQueries) {
-                    console.log(`[AnimeUnity] Specific search: ${query}`);
+            for (const query of searchQueries) {
+                console.log(`[AnimeUnity] Specific search: ${query}`);
+                const res = await searchAnime(query);
+                addRelevantSeasonCandidates(res, query);
+            }
+
+            // Enrich with a broad base query when season-name search matched only one arc/cour.
+            if (seasonNameMatch || seasonStrategyCandidates.length === 0) {
+                const broadQueries = [title];
+                if (originalTitle && originalTitle !== title) broadQueries.push(originalTitle);
+
+                for (const query of broadQueries) {
+                    console.log(`[AnimeUnity] Season pool enrichment search: ${query}`);
                     const res = await searchAnime(query);
-                    if (res && res.length > 0) {
-                        const relevantRes = res.filter(c => isRelevantSeasonCandidateLocal(c, query));
-                        if (relevantRes.length > 0) {
-                            candidates = relevantRes;
-                            break;
-                        }
-                    }
+                    addRelevantSeasonCandidates(res, query);
                 }
+            }
+
+            if (seasonStrategyCandidates.length > 0) {
+                candidates = seasonStrategyCandidates.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
             }
         }
 
@@ -1437,13 +1452,26 @@ async function getStreams(id, type, season, episode) {
             }
 
             const seasonTokenRegex = new RegExp(`\\b${season}\\b|season\\s*${season}|stagione\\s*${season}|part\\s*${season}|parte\\s*${season}`, "i");
+            const splitTokenRegex = /\b(part|parte|cour|arc|saga|chapter)\b|\b\w+(?:-|\s)?hen\b/i;
+            const extractYear = (candidate) => {
+                const yearMatch = String(candidate?.date || "").match(/(\d{4})/);
+                if (!yearMatch) return null;
+                const y = parseInt(yearMatch[1], 10);
+                return Number.isInteger(y) ? y : null;
+            };
             const partMap = new Map();
 
             for (const c of pool) {
                 if (!c) continue;
                 const combined = `${c.title || ""} ${c.title_eng || ""}`;
                 const hasSeasonToken = seasonTokenRegex.test(combined);
-                if (!hasSeasonToken && c.id !== current.id) continue;
+                const isRelevantSeries =
+                    checkSimilarity(c.title, title) ||
+                    checkSimilarity(c.title_eng, title) ||
+                    checkSimilarity(c.title, originalTitle) ||
+                    checkSimilarity(c.title_eng, originalTitle) ||
+                    isRelevantByLooseMatch(combined);
+                if (!hasSeasonToken && !isRelevantSeries && c.id !== current.id) continue;
 
                 const count = getCandidateEpisodeCount(c);
                 if (!count) continue;
@@ -1464,20 +1492,107 @@ async function getStreams(id, type, season, episode) {
                 }
             }
 
-            if (partMap.size === 0) {
-                return { candidate: current, mappedEpisode: requestedEpisode };
+            const trySequentialFallback = (startCandidate) => {
+                const startCount = getCandidateEpisodeCount(startCandidate);
+                if (!startCount || reqEp <= startCount) return null;
+
+                let remaining = reqEp - startCount;
+                let cursor = startCandidate;
+                const usedIds = new Set([startCandidate.id]);
+
+                const pickNext = (fromCandidate) => {
+                    const fromYear = extractYear(fromCandidate);
+                    let best = null;
+
+                    for (const c of pool) {
+                        if (!c || !c.id || usedIds.has(c.id) || c.id === fromCandidate.id) continue;
+
+                        const count = getCandidateEpisodeCount(c);
+                        if (!count) continue;
+
+                        const combined = `${c.title || ""} ${c.title_eng || ""}`;
+                        const lower = combined.toLowerCase();
+                        if (/\b(movie|film|special|ova|oav|recap)\b/i.test(lower)) continue;
+
+                        const hasSeasonToken = seasonTokenRegex.test(combined);
+                        const hasSplitToken = splitTokenRegex.test(combined);
+                        const hasPartToken = /(part|parte|cour)\s*\d+/i.test(lower);
+                        const isRelevantSeries =
+                            checkSimilarity(c.title, title) ||
+                            checkSimilarity(c.title_eng, title) ||
+                            checkSimilarity(c.title, originalTitle) ||
+                            checkSimilarity(c.title_eng, originalTitle) ||
+                            isRelevantByLooseMatch(combined);
+                        if (!isRelevantSeries) continue;
+                        if (!hasSeasonToken && !hasSplitToken && !hasPartToken) continue;
+
+                        const cYear = extractYear(c);
+                        const seasonDiff = (Number.isInteger(cYear) && Number.isInteger(seasonYear))
+                            ? Math.abs(cYear - seasonYear)
+                            : Number.MAX_SAFE_INTEGER;
+                        const fromDiff = (Number.isInteger(cYear) && Number.isInteger(fromYear))
+                            ? Math.abs(cYear - fromYear)
+                            : Number.MAX_SAFE_INTEGER;
+
+                        let score = 0;
+                        if (hasSeasonToken) score += 4;
+                        if (hasPartToken) score += 3;
+                        if (hasSplitToken) score += 2;
+                        if (checkSimilarity(c.title, title) || checkSimilarity(c.title_eng, title)) score += 2;
+                        if (checkSimilarity(c.title, originalTitle) || checkSimilarity(c.title_eng, originalTitle)) score += 2;
+                        if (Array.isArray(seasonNameHints) && seasonNameHints.some(h => checkSimilarity(c.title, h) || checkSimilarity(c.title_eng, h))) score += 1;
+                        if (fromDiff === 0) score += 2;
+                        else if (fromDiff === 1) score += 1;
+
+                        if (!best ||
+                            score > best.score ||
+                            (score === best.score && fromDiff < best.fromDiff) ||
+                            (score === best.score && fromDiff === best.fromDiff && seasonDiff < best.seasonDiff) ||
+                            (score === best.score && fromDiff === best.fromDiff && seasonDiff === best.seasonDiff && combined.length < best.length)) {
+                            best = { candidate: c, score, fromDiff, seasonDiff, length: combined.length };
+                        }
+                    }
+
+                    return best ? best.candidate : null;
+                };
+
+                while (remaining > 0) {
+                    const nextCandidate = pickNext(cursor);
+                    if (!nextCandidate) break;
+                    usedIds.add(nextCandidate.id);
+
+                    const nextCount = getCandidateEpisodeCount(nextCandidate);
+                    if (!nextCount) continue;
+
+                    if (remaining <= nextCount) {
+                        return { candidate: nextCandidate, mappedEpisode: remaining };
+                    }
+
+                    remaining -= nextCount;
+                    cursor = nextCandidate;
+                }
+
+                return null;
+            };
+
+            if (partMap.size > 0) {
+                const orderedParts = [...partMap.values()].sort((a, b) => a.part - b.part);
+                let remaining = reqEp;
+                for (const entry of orderedParts) {
+                    if (remaining <= entry.count) {
+                        if (entry.candidate.id !== current.id || remaining !== reqEp) {
+                            console.log(`[AnimeUnity] Split-cour switch for ${label}: "${current.title || current.title_eng}" -> "${entry.candidate.title || entry.candidate.title_eng}", mapped episode ${reqEp} -> ${remaining}`);
+                        }
+                        return { candidate: entry.candidate, mappedEpisode: remaining };
+                    }
+                    remaining -= entry.count;
+                }
             }
 
-            const orderedParts = [...partMap.values()].sort((a, b) => a.part - b.part);
-            let remaining = reqEp;
-            for (const entry of orderedParts) {
-                if (remaining <= entry.count) {
-                    if (entry.candidate.id !== current.id || remaining !== reqEp) {
-                        console.log(`[AnimeUnity] Split-cour switch for ${label}: "${current.title || current.title_eng}" -> "${entry.candidate.title || entry.candidate.title_eng}", mapped episode ${reqEp} -> ${remaining}`);
-                    }
-                    return { candidate: entry.candidate, mappedEpisode: remaining };
-                }
-                remaining -= entry.count;
+            const sequentialFallback = trySequentialFallback(current);
+            if (sequentialFallback) {
+                console.log(`[AnimeUnity] Split-cour switch for ${label}: "${current.title || current.title_eng}" -> "${sequentialFallback.candidate.title || sequentialFallback.candidate.title_eng}", mapped episode ${reqEp} -> ${sequentialFallback.mappedEpisode}`);
+                return sequentialFallback;
             }
 
             return { candidate: current, mappedEpisode: requestedEpisode };

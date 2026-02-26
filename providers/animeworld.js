@@ -1381,6 +1381,32 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
         if (originalTitle && originalTitle !== title) {
           searchQueries.push(`${originalTitle} ${season}`);
         }
+        const seasonStrategyCandidates = [];
+        const pushSeasonCandidates = (list) => {
+          if (!list || list.length === 0) return;
+          seasonStrategyCandidates.push(...list);
+        };
+        const normalizeText = (str) => String(str || "").toLowerCase().replace(/&#x27;|&#039;/g, "'").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+        const filterSeasonNameCandidates = (list, seasonNameCandidate, query) => {
+          if (!list || list.length === 0) return [];
+          const sNorm = normalizeText(seasonNameCandidate);
+          return list.filter((c) => {
+            const cNorm = normalizeText(c.title);
+            const matchesSeasonName = sNorm.length > 0 && (cNorm.includes(sNorm) || checkSimilarity(c.title, seasonNameCandidate));
+            const matchesSeries = checkSimilarity(c.title, title) || checkSimilarity(c.title, `${title} ${season}`) || checkSimilarity(c.title, originalTitle) || checkSimilarity(c.title, `${originalTitle} ${season}`) || checkSimilarity(c.title, query) || isRelevantByLooseMatch(c.title, [query, seasonNameCandidate, title, originalTitle]);
+            if (!matchesSeries) return false;
+            if (matchesSeasonName) return true;
+            const isSplitEntry = /\b(part|parte|cour)\b/i.test(cNorm);
+            if (isSplitEntry) return true;
+            return false;
+          });
+        };
+        const filterNumericSeasonCandidates = (list, query) => {
+          if (!list || list.length === 0) return [];
+          return list.filter(
+            (c) => checkSimilarity(c.title, title) || checkSimilarity(c.title, `${title} ${season}`) || checkSimilarity(c.title, originalTitle) || checkSimilarity(c.title, `${originalTitle} ${season}`) || checkSimilarity(c.title, query) || isRelevantByLooseMatch(c.title, [query])
+          );
+        };
         if (seasonNameCandidates.length > 0) {
           let seasonNameUsed = null;
           for (const seasonNameCandidate of seasonNameCandidates) {
@@ -1394,22 +1420,13 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
             for (const query of seasonQueries) {
               console.log(`[AnimeWorld] Strategy 1 - Specific Season Name search: ${query}`);
               const res = yield searchAnime(query);
-              if (res && res.length > 0) {
-                const relevantRes = res.filter((c) => {
-                  const normalizeText = (str) => String(str || "").toLowerCase().replace(/&#x27;|&#039;/g, "'").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-                  const cNorm = normalizeText(c.title);
-                  const sNorm = normalizeText(seasonNameCandidate);
-                  const matchesSeasonName = sNorm.length > 0 && (cNorm.includes(sNorm) || checkSimilarity(c.title, seasonNameCandidate));
-                  if (!matchesSeasonName) return false;
-                  return checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle) || checkSimilarity(c.title, query);
-                });
-                if (relevantRes.length > 0) {
-                  console.log(`[AnimeWorld] Strategy 1 - Found relevance for: ${query}`);
-                  candidates = relevantRes;
-                  seasonNameMatch = true;
-                  seasonNameUsed = seasonNameCandidate;
-                  break;
-                }
+              const relevantRes = filterSeasonNameCandidates(res, seasonNameCandidate, query);
+              if (relevantRes.length > 0) {
+                console.log(`[AnimeWorld] Strategy 1 - Found relevance for: ${query}`);
+                pushSeasonCandidates(relevantRes);
+                seasonNameMatch = true;
+                seasonNameUsed = seasonNameCandidate;
+                break;
               }
             }
             if (seasonNameMatch) break;
@@ -1419,20 +1436,28 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
           }
           seasonName = seasonNameUsed || seasonName;
         }
-        if (!seasonNameMatch) {
-          for (const query of searchQueries) {
-            console.log(`[AnimeWorld] Strategy 1 - Numeric Season search: ${query}`);
+        for (const query of searchQueries) {
+          console.log(`[AnimeWorld] Strategy 1 - Numeric Season search: ${query}`);
+          const res = yield searchAnime(query);
+          const relevantRes = filterNumericSeasonCandidates(res, query);
+          if (relevantRes.length > 0) {
+            pushSeasonCandidates(relevantRes);
+          }
+        }
+        if (seasonNameMatch || seasonStrategyCandidates.length === 0) {
+          const broadQueries = [title];
+          if (originalTitle && originalTitle !== title) broadQueries.push(originalTitle);
+          for (const query of broadQueries) {
+            console.log(`[AnimeWorld] Strategy 1 - Broad season search: ${query}`);
             const res = yield searchAnime(query);
-            if (res && res.length > 0) {
-              const relevantRes = res.filter(
-                (c) => checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle) || checkSimilarity(c.title, query)
-              );
-              if (relevantRes.length > 0) {
-                candidates = relevantRes;
-                break;
-              }
+            const relevantRes = filterNumericSeasonCandidates(res, query);
+            if (relevantRes.length > 0) {
+              pushSeasonCandidates(relevantRes);
             }
           }
+        }
+        if (seasonStrategyCandidates.length > 0) {
+          candidates = seasonStrategyCandidates.filter((v, i, a) => a.findIndex((t) => t.href === v.href) === i);
         }
       }
       const isMovie = metadata.genres && metadata.genres.some((g) => g.name === "Movie") || season === 0 || type === "movie";
@@ -1879,22 +1904,67 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
         if (match) return parseInt(match[1], 10);
         return null;
       };
-      const pickNextSplitCourCandidate = (currentMatch, candidatePool = []) => {
+      const extractYearFromCandidate = (candidate) => {
+        const yearMatch = String((candidate == null ? void 0 : candidate.date) || "").match(/(\d{4})/);
+        if (!yearMatch) return null;
+        const y = parseInt(yearMatch[1], 10);
+        return Number.isInteger(y) ? y : null;
+      };
+      const pickNextSplitCourCandidate = (currentMatch, candidatePool = [], mappedEpisode = null) => {
         const currentPart = getPartIndexFromMatch(currentMatch) || 1;
         const seasonTokenRegex = new RegExp(`\\b${season}\\b|season\\s*${season}|stagione\\s*${season}`, "i");
-        let best = null;
+        const splitTokenRegex = /\b(part|parte|cour|arc|saga|chapter)\b|\b\w+(?:-|\s)?hen\b/i;
+        const currentYear = extractYearFromCandidate(currentMatch);
+        let explicitBest = null;
+        let genericBest = null;
         for (const c of candidatePool) {
           if (!c || c.href === currentMatch.href) continue;
-          const part = getPartIndexFromMatch(c);
-          if (!part || part <= currentPart) continue;
           const raw = String(c.title || "");
-          const isRelevant = seasonTokenRegex.test(raw) || checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle);
-          if (!isRelevant) continue;
-          if (!best || part < best.part || part === best.part && raw.length < String(best.candidate.title || "").length) {
-            best = { candidate: c, part };
+          const lower = raw.toLowerCase();
+          if (/\b(movie|film|special|ova|oav|recap|reflection)\b/i.test(lower)) continue;
+          const isSeriesRelevant = checkSimilarity(c.title, title) || checkSimilarity(c.title, `${title} ${season}`) || checkSimilarity(c.title, originalTitle) || checkSimilarity(c.title, `${originalTitle} ${season}`) || isRelevantByLooseMatch(c.title, [title, originalTitle, seasonName, `${title} ${season}`, `${originalTitle} ${season}`].filter(Boolean));
+          if (!isSeriesRelevant) continue;
+          const part = getPartIndexFromMatch(c);
+          const cYear = extractYearFromCandidate(c);
+          const yearDiff = Number.isInteger(currentYear) && Number.isInteger(cYear) ? Math.abs(cYear - currentYear) : Number.MAX_SAFE_INTEGER;
+          const seasonYearDiff = Number.isInteger(seasonYear) && Number.isInteger(cYear) ? Math.abs(cYear - seasonYear) : Number.MAX_SAFE_INTEGER;
+          if (part && part > currentPart) {
+            let score2 = 0;
+            if (seasonTokenRegex.test(raw)) score2 += 4;
+            if (/(part|parte|cour)\s*\d+/i.test(lower)) score2 += 3;
+            if (checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle)) score2 += 2;
+            if (yearDiff === 0) score2 += 2;
+            else if (yearDiff === 1) score2 += 1;
+            if (!explicitBest || score2 > explicitBest.score || score2 === explicitBest.score && part < explicitBest.part || score2 === explicitBest.score && part === explicitBest.part && yearDiff < explicitBest.yearDiff || score2 === explicitBest.score && part === explicitBest.part && yearDiff === explicitBest.yearDiff && raw.length < String(explicitBest.candidate.title || "").length) {
+              explicitBest = { candidate: c, part, score: score2, yearDiff };
+            }
+            continue;
+          }
+          const hasSeasonToken = seasonTokenRegex.test(raw);
+          const hasSplitToken = splitTokenRegex.test(raw);
+          const hasNumericToken = /\b\d+\b/.test(raw);
+          if (!hasSeasonToken && !hasSplitToken && !hasNumericToken) continue;
+          let score = 0;
+          if (hasSeasonToken) score += 5;
+          if (hasSplitToken) score += 3;
+          if (/(part|parte|cour)\s*\d+/i.test(lower)) score += 2;
+          if (checkSimilarity(c.title, title) || checkSimilarity(c.title, originalTitle)) score += 3;
+          if (seasonName && checkSimilarity(c.title, seasonName)) score += 2;
+          const endingNum = /(\d+)\s*(?:\)|\]|\s)*$/i.exec(raw);
+          if (endingNum) {
+            const endN = parseInt(endingNum[1], 10);
+            if (Number.isInteger(endN) && endN === season) score += 2;
+          }
+          if (yearDiff === 0) score += 2;
+          else if (yearDiff === 1) score += 1;
+          if (seasonYearDiff === 0) score += 1;
+          if (!genericBest || score > genericBest.score || score === genericBest.score && yearDiff < genericBest.yearDiff || score === genericBest.score && yearDiff === genericBest.yearDiff && seasonYearDiff < genericBest.seasonYearDiff || score === genericBest.score && yearDiff === genericBest.yearDiff && seasonYearDiff === genericBest.seasonYearDiff && raw.length < String(genericBest.candidate.title || "").length) {
+            genericBest = { candidate: c, score, yearDiff, seasonYearDiff };
           }
         }
-        return best ? best.candidate : null;
+        if (explicitBest) return explicitBest.candidate;
+        if (mappedEpisode !== null && mappedEpisode !== void 0 && mappedEpisode <= 0) return null;
+        return genericBest ? genericBest.candidate : null;
       };
       const processMatch = (_0, _1, _2, ..._3) => __async(null, [_0, _1, _2, ..._3], function* (match, isDub, candidatePool, requestedEpisode = episode, allowSplitFallback = true) {
         if (!match) return;
@@ -1923,6 +1993,19 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
               });
             }
           }
+          const numericEpisodes = episodes.map((e) => parseInt(e.num, 10)).filter((n) => Number.isInteger(n) && n > 0);
+          const maxEpisodeInPart = numericEpisodes.length > 0 ? Math.max(...numericEpisodes) : 0;
+          let localRequestedEpisode = requestedEpisode;
+          if (season > 1 && type !== "movie") {
+            const currentPart = getPartIndexFromMatch(match);
+            if (currentPart && currentPart > 1 && maxEpisodeInPart > 0 && requestedEpisode > maxEpisodeInPart) {
+              const remappedEpisode = requestedEpisode - (currentPart - 1) * maxEpisodeInPart;
+              if (remappedEpisode > 0 && remappedEpisode <= maxEpisodeInPart) {
+                console.log(`[AnimeWorld] Split-cour local remap: "${match.title}", mapped episode ${requestedEpisode} -> ${remappedEpisode}`);
+                localRequestedEpisode = remappedEpisode;
+              }
+            }
+          }
           let targetEp;
           let prioritizeAbsolute = false;
           if (season > 1 && type !== "movie") {
@@ -1948,8 +2031,8 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
                 }
               }
             }
-            const absEpisode = calculateAbsoluteEpisode(metadata, season, requestedEpisode);
-            if (absEpisode == requestedEpisode) prioritizeAbsolute = false;
+            const absEpisode = calculateAbsoluteEpisode(metadata, season, localRequestedEpisode);
+            if (absEpisode == localRequestedEpisode) prioritizeAbsolute = false;
           }
           if (type === "movie") {
             if (episodes.length > 0) {
@@ -1957,31 +2040,29 @@ function getStreams(id, type, season, episode, providedMetadata = null) {
             }
           } else {
             if (prioritizeAbsolute) {
-              const absEpisode = calculateAbsoluteEpisode(metadata, season, requestedEpisode);
+              const absEpisode = calculateAbsoluteEpisode(metadata, season, localRequestedEpisode);
               console.log(`[AnimeWorld] Prioritizing absolute episode: ${absEpisode} for "${match.title}"`);
               targetEp = episodes.find((e) => e.num == absEpisode);
               if (!targetEp) {
                 console.log(`[AnimeWorld] Absolute episode ${absEpisode} not found in list. Available range: ${episodes.length > 0 ? episodes[0].num + "-" + episodes[episodes.length - 1].num : "None"}`);
               }
             } else {
-              targetEp = episodes.find((e) => e.num == requestedEpisode);
+              targetEp = episodes.find((e) => e.num == localRequestedEpisode);
             }
           }
           if (!targetEp && season > 1 && !prioritizeAbsolute) {
-            const absEpisode = calculateAbsoluteEpisode(metadata, season, requestedEpisode);
-            if (absEpisode != requestedEpisode) {
-              console.log(`[AnimeWorld] Relative episode ${requestedEpisode} not found, trying absolute: ${absEpisode}`);
+            const absEpisode = calculateAbsoluteEpisode(metadata, season, localRequestedEpisode);
+            if (absEpisode != localRequestedEpisode) {
+              console.log(`[AnimeWorld] Relative episode ${localRequestedEpisode} not found, trying absolute: ${absEpisode}`);
               targetEp = episodes.find((e) => e.num == absEpisode);
             }
           }
           if (!targetEp && allowSplitFallback && season > 1 && type !== "movie") {
-            const numericEpisodes = episodes.map((e) => parseInt(e.num, 10)).filter((n) => Number.isInteger(n) && n > 0);
-            const maxEpisodeInPart = numericEpisodes.length > 0 ? Math.max(...numericEpisodes) : 0;
-            if (maxEpisodeInPart > 0 && requestedEpisode > maxEpisodeInPart) {
-              const nextCandidate = pickNextSplitCourCandidate(match, candidatePool || []);
-              const mappedEpisode = requestedEpisode - maxEpisodeInPart;
+            if (maxEpisodeInPart > 0 && localRequestedEpisode > maxEpisodeInPart) {
+              const mappedEpisode = localRequestedEpisode - maxEpisodeInPart;
+              const nextCandidate = pickNextSplitCourCandidate(match, candidatePool || [], mappedEpisode);
               if (nextCandidate && mappedEpisode > 0) {
-                console.log(`[AnimeWorld] Split-cour switch: "${match.title}" -> "${nextCandidate.title}", mapped episode ${requestedEpisode} -> ${mappedEpisode}`);
+                console.log(`[AnimeWorld] Split-cour switch: "${match.title}" -> "${nextCandidate.title}", mapped episode ${localRequestedEpisode} -> ${mappedEpisode}`);
                 yield processMatch(nextCandidate, isDub, candidatePool, mappedEpisode, false);
                 return;
               }
