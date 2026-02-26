@@ -7,6 +7,101 @@ const { checkQualityFromPlaylist } = require('../quality_helper');
 const BASE_URL = 'https://guardoserie.horse';
 const TMDB_API_KEY = '68e094699525b18a70bab2f86b1fa706';
 
+function extractEpisodeUrlFromSeriesPage(pageHtml, season, episode) {
+    if (!pageHtml) return null;
+
+    const seasonIndex = parseInt(season, 10) - 1;
+    const episodeIndex = parseInt(episode, 10) - 1;
+    if (!Number.isInteger(seasonIndex) || !Number.isInteger(episodeIndex) || seasonIndex < 0 || episodeIndex < 0) {
+        return null;
+    }
+
+    // Main pattern used by Guardoserie season tabs.
+    const seasonBlocks = pageHtml.split(/class=['"]les-content['"]/i);
+    if (seasonBlocks.length > seasonIndex + 1) {
+        const targetSeasonBlock = seasonBlocks[seasonIndex + 1];
+        const blockEnd = targetSeasonBlock.indexOf('</div>');
+        const cleanBlock = blockEnd !== -1 ? targetSeasonBlock.substring(0, blockEnd) : targetSeasonBlock;
+
+        const episodeRegex = /<a[^>]+href=['"]([^'"]+)['"][^>]*>/g;
+        const episodes = [];
+        let eMatch;
+        while ((eMatch = episodeRegex.exec(cleanBlock)) !== null) {
+            if (eMatch[1] && /\/episodio\//i.test(eMatch[1])) {
+                episodes.push(eMatch[1]);
+            }
+        }
+
+        if (episodes.length > episodeIndex) {
+            return episodes[episodeIndex];
+        }
+    }
+
+    // Fallback: direct episode URL pattern on full page.
+    const explicitEpisodeRegex = new RegExp(`https?:\\/\\/[^"'\\s]+\\/episodio\\/[^"'\\s]*stagione-${season}-episodio-${episode}[^"'\\s]*`, 'i');
+    const explicitMatch = pageHtml.match(explicitEpisodeRegex);
+    if (explicitMatch && explicitMatch[0]) {
+        return explicitMatch[0];
+    }
+
+    return null;
+}
+
+function normalizePlayerLink(link) {
+    if (!link) return null;
+    let normalized = String(link)
+        .trim()
+        .replace(/&amp;/g, '&')
+        .replace(/\\\//g, '/');
+
+    if (!normalized || normalized.startsWith('data:')) return null;
+
+    if (normalized.startsWith('//')) {
+        normalized = `https:${normalized}`;
+    } else if (normalized.startsWith('/')) {
+        normalized = `${BASE_URL}${normalized}`;
+    } else if (!/^https?:\/\//i.test(normalized) && /(loadm|uqload|dropload)/i.test(normalized)) {
+        normalized = `https://${normalized.replace(/^\/+/, '')}`;
+    }
+
+    return /^https?:\/\//i.test(normalized) ? normalized : null;
+}
+
+function extractPlayerLinkFromHtml(html) {
+    if (!html) return null;
+
+    const iframeTags = html.match(/<iframe\b[^>]*>/ig) || [];
+    for (const tag of iframeTags) {
+        const candidates = [];
+        const attrRegex = /\b(?:data-src|src)\s*=\s*(['"])(.*?)\1/ig;
+        let attrMatch;
+        while ((attrMatch = attrRegex.exec(tag)) !== null) {
+            const candidate = normalizePlayerLink(attrMatch[2]);
+            if (candidate) candidates.push(candidate);
+        }
+
+        const preferred = candidates.find(c => /(loadm|uqload|dropload)/i.test(c));
+        if (preferred) return preferred;
+        if (candidates.length > 0) return candidates[0];
+    }
+
+    // Fallback: some pages expose the player URL in scripts without iframe.
+    const directRegexes = [
+        /https?:\/\/(?:www\.)?(?:loadm|uqload|dropload)[^"'<\s]+/ig,
+        /https?:\\\/\\\/(?:www\\.)?(?:loadm|uqload|dropload)[^"'<\s]+/ig
+    ];
+
+    for (const regex of directRegexes) {
+        const matches = html.match(regex) || [];
+        for (const raw of matches) {
+            const candidate = normalizePlayerLink(raw);
+            if (candidate) return candidate;
+        }
+    }
+
+    return null;
+}
+
 function getQualityFromName(qualityStr) {
     if (!qualityStr) return 'Unknown';
 
@@ -65,10 +160,12 @@ async function getStreams(id, type, season, episode) {
             }
         } else if (id.toString().startsWith('kitsu:')) {
             const resolved = await getTmdbFromKitsu(id);
-            if (resolved && resolved.tmdbId) {
-                tmdbId = resolved.tmdbId;
-                if (resolved.season) season = resolved.season;
-            }
+                if (resolved && resolved.tmdbId) {
+                    tmdbId = resolved.tmdbId;
+                    if (resolved.season) season = resolved.season;
+                }
+        } else if (id.toString().startsWith('tmdb:')) {
+            tmdbId = id.toString().replace('tmdb:', '');
         }
 
         const showInfo = await getShowInfo(tmdbId, type === 'movie' ? 'movie' : 'tv');
@@ -245,34 +342,11 @@ async function getStreams(id, type, season, episode) {
                 'Referer': `${BASE_URL}/`
             } });
             const pageHtml = await pageRes.text();
-
-            const seasonIndex = parseInt(season) - 1;
-            const episodeIndex = parseInt(episode) - 1;
-
-            // Split by les-content which contains episodes for each season
-            const seasonBlocks = pageHtml.split(/class="les-content"/i);
-            
-            if (seasonBlocks.length > seasonIndex + 1) {
-                const targetSeasonBlock = seasonBlocks[seasonIndex + 1];
-                // Limit to the end of this block to avoid matches from next seasons
-                const blockEnd = targetSeasonBlock.indexOf('</div>');
-                const cleanBlock = blockEnd !== -1 ? targetSeasonBlock.substring(0, blockEnd) : targetSeasonBlock;
-                
-                const episodeRegex = /<a[^>]+href="([^"]+)"[^>]*>/g;
-                const episodes = [];
-                let eMatch;
-                while ((eMatch = episodeRegex.exec(cleanBlock)) !== null) {
-                    episodes.push(eMatch[1]);
-                }
-                
-                if (episodes.length > episodeIndex) {
-                    episodeUrl = episodes[episodeIndex];
-                } else {
-                    console.log(`[Guardoserie] Episode ${episode} not found in Season ${season} block`);
-                    return [];
-                }
+            const resolvedEpisodeUrl = extractEpisodeUrlFromSeriesPage(pageHtml, season, episode);
+            if (resolvedEpisodeUrl) {
+                episodeUrl = resolvedEpisodeUrl;
             } else {
-                console.log(`[Guardoserie] Season ${season} block not found at ${targetUrl}`);
+                console.log(`[Guardoserie] Episode ${episode} not found in Season ${season} at ${targetUrl}`);
                 return [];
             }
         }
@@ -286,16 +360,24 @@ async function getStreams(id, type, season, episode) {
         } });
         const finalHtml = await finalRes.text();
 
-        // Extract player link using regex
-        // Skip common SVG base64 placeholders
-        const iframeMatches = finalHtml.match(/<iframe[^>]+(?:src|data-src)="([^"]+)"/ig);
-        let playerLink = null;
-        if (iframeMatches) {
-            for (const matchStr of iframeMatches) {
-                const srcMatch = matchStr.match(/(?:src|data-src)="([^"]+)"/i);
-                if (srcMatch && !srcMatch[1].startsWith('data:')) {
-                    playerLink = srcMatch[1];
-                    break;
+        let playerLink = extractPlayerLinkFromHtml(finalHtml);
+
+        // Safety fallback: if we are still on a /serie/ page, derive the episode URL and retry extraction.
+        if (!playerLink && /\/serie\//i.test(episodeUrl)) {
+            const fallbackEpisodeUrl = extractEpisodeUrlFromSeriesPage(finalHtml, season, episode);
+            if (fallbackEpisodeUrl && fallbackEpisodeUrl !== episodeUrl) {
+                console.log(`[Guardoserie] Fallback to derived episode URL: ${fallbackEpisodeUrl}`);
+                const retryRes = await fetch(getProxiedUrl(fallbackEpisodeUrl), { headers: {
+                    'User-Agent': USER_AGENT,
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+                    'Referer': `${BASE_URL}/`
+                } });
+                const retryHtml = await retryRes.text();
+                const fallbackPlayerLink = extractPlayerLinkFromHtml(retryHtml);
+                if (fallbackPlayerLink) {
+                    playerLink = fallbackPlayerLink;
+                    episodeUrl = fallbackEpisodeUrl;
                 }
             }
         }
