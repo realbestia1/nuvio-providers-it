@@ -4,7 +4,7 @@ const { formatStream } = require('../formatter');
 const { getTmdbFromKitsu } = require('../tmdb_helper');
 const { checkQualityFromPlaylist } = require('../quality_helper');
 
-const BASE_URL = 'https://guardoserie.horse';
+const BASE_URL = 'https://guardoserie.space';
 const TMDB_API_KEY = '68e094699525b18a70bab2f86b1fa706';
 
 function extractEpisodeUrlFromSeriesPage(pageHtml, season, episode) {

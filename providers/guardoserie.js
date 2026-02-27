@@ -7607,7 +7607,7 @@ var { extractLoadm, extractUqload, extractDropLoad } = require_extractors();
 var { formatStream } = require_formatter();
 var { getTmdbFromKitsu } = require_tmdb_helper();
 var { checkQualityFromPlaylist } = require_quality_helper();
-var BASE_URL = "https://guardoserie.horse";
+var BASE_URL = "https://guardoserie.space";
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 function extractEpisodeUrlFromSeriesPage(pageHtml, season, episode) {
   if (!pageHtml) return null;
