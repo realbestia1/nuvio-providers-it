@@ -1,15 +1,16 @@
 version: '3.8'
 
 services:
-  stremio-addon:
+  easystreams:
     build: .
-    container_name: nuvio-stremio-addon
+    container_name: easystreams
     ports:
       - "7000:7000"
     environment:
       - PORT=7000
       - NODE_ENV=production
       - VERBOSE_LOGS=0
+      - QUIET_PROVIDER_LOGS=1
       #- CF_PROXY_URL=https://********.workers.dev/
     restart: unless-stopped
     # Optional: Mount source code for development (uncomment if needed)

@@ -30,6 +30,28 @@ const http = require('http');
 
 const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 const VERBOSE_LOGS = process.env.VERBOSE_LOGS === '1' || (!IS_PRODUCTION && process.env.VERBOSE_LOGS !== '0');
+const QUIET_PROVIDER_LOGS = process.env.QUIET_PROVIDER_LOGS !== '0';
+
+const PROVIDER_LOG_PREFIXES = [
+    '[GuardaHD]',
+    '[Guardoserie]',
+    '[Guardaserie]',
+    '[StreamingCommunity]',
+    '[QualityHelper]',
+    '[AnimeUnity]',
+    '[AnimeWorld]'
+];
+
+const originalConsoleLog = console.log.bind(console);
+if (IS_PRODUCTION && !VERBOSE_LOGS && QUIET_PROVIDER_LOGS) {
+    console.log = (...args) => {
+        const first = typeof args[0] === 'string' ? args[0] : '';
+        if (first && PROVIDER_LOG_PREFIXES.some((prefix) => first.startsWith(prefix))) {
+            return;
+        }
+        originalConsoleLog(...args);
+    };
+}
 
 function logInfo(...args) {
     console.log(...args);
