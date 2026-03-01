@@ -11060,6 +11060,12 @@ var require_animesaturn = __commonJS({
       const match = text.match(/(\d{3,4}p)/i);
       return match ? match[1] : "Unknown";
     }
+    function normalizeAnimeSaturnQuality(value) {
+      const text = String(value || "").trim();
+      if (!text) return "720p";
+      if (/^(?:unknown|unknow|auto)$/i.test(text)) return "720p";
+      return text;
+    }
     function fetchWithTimeout(_0) {
       return __async(this, arguments, function* (url, options = {}, timeoutMs = FETCH_TIMEOUT) {
         const controller = new AbortController();
@@ -11476,7 +11482,7 @@ var require_animesaturn = __commonJS({
               title: displayTitle,
               url: mediaUrl,
               language: streamLanguage,
-              quality,
+              quality: normalizeAnimeSaturnQuality(quality),
               headers: {
                 "User-Agent": USER_AGENT,
                 Referer: watchUrl

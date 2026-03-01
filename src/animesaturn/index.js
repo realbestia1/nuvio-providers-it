@@ -264,6 +264,13 @@ function extractQualityHint(value) {
   return match ? match[1] : "Unknown";
 }
 
+function normalizeAnimeSaturnQuality(value) {
+  const text = String(value || "").trim();
+  if (!text) return "720p";
+  if (/^(?:unknown|unknow|auto)$/i.test(text)) return "720p";
+  return text;
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -766,7 +773,7 @@ async function extractStreamsFromAnimePath(animePath, requestedEpisode, mediaTyp
         title: displayTitle,
         url: mediaUrl,
         language: streamLanguage,
-        quality,
+        quality: normalizeAnimeSaturnQuality(quality),
         headers: {
           "User-Agent": USER_AGENT,
           Referer: watchUrl
