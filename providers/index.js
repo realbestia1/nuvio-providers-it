@@ -10124,7 +10124,7 @@ var require_animeworld = __commonJS({
       const titleText = String(title || "").toLowerCase();
       const pathText = String(animePath || "").toLowerCase();
       if (/(?:^|[^\w])ita(?:[^\w]|$)/i.test(titleText)) return "ITA";
-      if (/(?:^|[-_/])ita(?:[-_/]|$)/i.test(pathText)) return "ITA";
+      if (/(?:^|[-_/])ita(?:[-_/.?]|$)/i.test(pathText)) return "ITA";
       return "SUB";
     }
     function resolveLanguageEmoji(sourceTag) {
@@ -10193,6 +10193,12 @@ var require_animeworld = __commonJS({
       const text = String(value || "");
       const match = text.match(/(\d{3,4}p)/i);
       return match ? match[1] : "Unknown";
+    }
+    function normalizeAnimeWorldQuality(value) {
+      const text = String(value || "").trim();
+      if (!text) return "720p";
+      if (/^(?:unknown|unknow|auto)$/i.test(text)) return "720p";
+      return text;
     }
     function collectMediaLinksFromHtml(html) {
       const links = [];
@@ -10536,7 +10542,7 @@ var require_animeworld = __commonJS({
             server: serverName,
             url: mediaUrl,
             language: streamLanguage,
-            quality,
+            quality: normalizeAnimeWorldQuality(quality),
             headers: {
               "User-Agent": USER_AGENT,
               Referer: animeUrl
@@ -10585,7 +10591,7 @@ var require_animeworld = __commonJS({
                   server: serverName,
                   url: mediaUrl,
                   language: streamLanguage,
-                  quality,
+                  quality: normalizeAnimeWorldQuality(quality),
                   headers: {
                     "User-Agent": USER_AGENT,
                     Referer: animeUrl

@@ -160,7 +160,8 @@ function inferSourceTag(title, animePath) {
   const titleText = String(title || "").toLowerCase();
   const pathText = String(animePath || "").toLowerCase();
   if (/(?:^|[^\w])ita(?:[^\w]|$)/i.test(titleText)) return "ITA";
-  if (/(?:^|[-_/])ita(?:[-_/]|$)/i.test(pathText)) return "ITA";
+  // AnimeWorld slugs often use `-ita.<id>` format (dot after `ita`).
+  if (/(?:^|[-_/])ita(?:[-_/.?]|$)/i.test(pathText)) return "ITA";
   return "SUB";
 }
 
@@ -252,6 +253,13 @@ function extractQualityHint(value) {
   const text = String(value || "");
   const match = text.match(/(\d{3,4}p)/i);
   return match ? match[1] : "Unknown";
+}
+
+function normalizeAnimeWorldQuality(value) {
+  const text = String(value || "").trim();
+  if (!text) return "720p";
+  if (/^(?:unknown|unknow|auto)$/i.test(text)) return "720p";
+  return text;
 }
 
 function collectMediaLinksFromHtml(html) {
@@ -642,7 +650,7 @@ async function extractStreamsFromAnimePath(animePath, requestedEpisode, mediaTyp
       server: serverName,
       url: mediaUrl,
       language: streamLanguage,
-      quality,
+      quality: normalizeAnimeWorldQuality(quality),
       headers: {
         "User-Agent": USER_AGENT,
         Referer: animeUrl
@@ -697,7 +705,7 @@ async function extractStreamsFromAnimePath(animePath, requestedEpisode, mediaTyp
             server: serverName,
             url: mediaUrl,
             language: streamLanguage,
-            quality,
+            quality: normalizeAnimeWorldQuality(quality),
             headers: {
               "User-Agent": USER_AGENT,
               Referer: animeUrl
