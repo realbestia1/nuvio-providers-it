@@ -9,7 +9,7 @@ async function extractSuperVideo(url, refererBase = null) {
     const id = url.split('/').pop();
     const embedUrl = `https://supervideo.tv/e/${id}`;
     
-    if (!refererBase) refererBase = "https://guardahd.stream/"; // Default referer if missing
+    if (!refererBase) refererBase = "https://supervideo.tv/";
 
     // Use proxy for the initial fetch to bypass Cloudflare if configured
     const proxiedUrl = getProxiedUrl(embedUrl);

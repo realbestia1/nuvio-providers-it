@@ -18,13 +18,24 @@ var __async = (__this, __arguments, generator) => {
     step((generator = generator.apply(__this, __arguments)).next());
   });
 };
-const BASE_URL = "https://guardaserietv.autos";
+const { getProviderUrl } = require("../provider_urls.js");
+function getGuardaserieBaseUrl() {
+  return getProviderUrl(
+    "guardaserie",
+    ["GUARDASERIE_BASE_URL", "GS_BASE_URL"]
+  );
+}
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
+function getMappingApiUrl() {
+  return getProviderUrl(
+    "mapping_api",
+    ["MAPPING_API_URL"]
+  ).replace(/\/+$/, "");
+}
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
 
 const { extractMixDrop, extractDropLoad, extractSuperVideo, extractUqload, extractUpstream } = require('../extractors');
 require('../fetch_helper.js');
-const { getSeasonEpisodeFromAbsolute, getTmdbFromKitsu } = require('../tmdb_helper.js');
 const { checkQualityFromPlaylist } = require('../quality_helper.js');
 const { formatStream } = require('../formatter.js');
 
@@ -118,6 +129,56 @@ function getTmdbIdFromImdb(imdbId, type) {
   });
 }
 
+function getIdsFromKitsu(kitsuId, season, episode) {
+  return __async(this, null, function* () {
+    try {
+      if (!kitsuId) return null;
+      const params = new URLSearchParams();
+      const parsedEpisode = Number.parseInt(String(episode || ""), 10);
+      const parsedSeason = Number.parseInt(String(season || ""), 10);
+      if (Number.isInteger(parsedEpisode) && parsedEpisode > 0) {
+        params.set("ep", String(parsedEpisode));
+      } else {
+        params.set("ep", "1");
+      }
+      if (Number.isInteger(parsedSeason) && parsedSeason >= 0) {
+        params.set("s", String(parsedSeason));
+      }
+
+      const url = `${getMappingApiUrl()}/kitsu/${encodeURIComponent(String(kitsuId).trim())}?${params.toString()}`;
+      const response = yield fetch(url);
+      if (!response.ok) return null;
+      const payload = yield response.json();
+      const ids = payload && payload.mappings && payload.mappings.ids ? payload.mappings.ids : {};
+      const tmdbEpisode =
+        (payload && payload.mappings && (payload.mappings.tmdb_episode || payload.mappings.tmdbEpisode)) ||
+        (payload && (payload.tmdb_episode || payload.tmdbEpisode)) ||
+        null;
+      const tmdbId = ids && /^\d+$/.test(String(ids.tmdb || "").trim()) ? String(ids.tmdb).trim() : null;
+      const imdbId = ids && /^tt\d+$/i.test(String(ids.imdb || "").trim()) ? String(ids.imdb).trim() : null;
+      const mappedSeason = Number.parseInt(String(
+        tmdbEpisode && (tmdbEpisode.season || tmdbEpisode.seasonNumber || tmdbEpisode.season_number) || ""
+      ), 10);
+      const mappedEpisode = Number.parseInt(String(
+        tmdbEpisode && (tmdbEpisode.episode || tmdbEpisode.episodeNumber || tmdbEpisode.episode_number) || ""
+      ), 10);
+      const rawEpisodeNumber = Number.parseInt(String(
+        tmdbEpisode && (tmdbEpisode.rawEpisodeNumber || tmdbEpisode.raw_episode_number || tmdbEpisode.rawEpisode) || ""
+      ), 10);
+      return {
+        tmdbId,
+        imdbId,
+        mappedSeason: Number.isInteger(mappedSeason) && mappedSeason > 0 ? mappedSeason : null,
+        mappedEpisode: Number.isInteger(mappedEpisode) && mappedEpisode > 0 ? mappedEpisode : null,
+        rawEpisodeNumber: Number.isInteger(rawEpisodeNumber) && rawEpisodeNumber > 0 ? rawEpisodeNumber : null
+      };
+    } catch (e) {
+      console.error("[Guardaserie] Kitsu mapping error:", e);
+      return null;
+    }
+  });
+}
+
 function verifyMoviePlayer(url, targetYear) {
   return __async(this, null, function* () {
     try {
@@ -168,16 +229,49 @@ function getStreams(id, type, season, episode, providerContext = null) {
     try {
       let tmdbId = id;
       let imdbId = null;
+      let effectiveSeason = Number.parseInt(String(season || ""), 10);
+      if (!Number.isInteger(effectiveSeason) || effectiveSeason < 1) effectiveSeason = 1;
+      let effectiveEpisode = Number.parseInt(String(episode || ""), 10);
+      if (!Number.isInteger(effectiveEpisode) || effectiveEpisode < 1) effectiveEpisode = 1;
       const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || ""))
         ? String(providerContext.tmdbId)
         : null;
       const contextImdbId = providerContext && /^tt\d+$/i.test(String(providerContext.imdbId || ""))
         ? String(providerContext.imdbId)
         : null;
-      const parsedContextSeason = parseInt(providerContext && providerContext.canonicalSeason, 10);
-      const hasContextSeason = Number.isInteger(parsedContextSeason) && parsedContextSeason >= 0;
+      const contextKitsuId = providerContext && /^\d+$/.test(String(providerContext.kitsuId || ""))
+        ? String(providerContext.kitsuId)
+        : null;
+      const shouldIncludeSeasonHintForKitsu =
+        providerContext && providerContext.seasonProvided === true;
 
-      if (id.toString().startsWith("tt")) {
+      if (id.toString().startsWith("kitsu:") || contextKitsuId) {
+        const kitsuId =
+          contextKitsuId ||
+          (((id.toString().match(/^kitsu:(\d+)/i) || [])[1]) || null);
+        const seasonHintForKitsu = shouldIncludeSeasonHintForKitsu ? season : null;
+        const mapped = kitsuId ? (yield getIdsFromKitsu(kitsuId, seasonHintForKitsu, episode)) : null;
+        if (mapped) {
+          if (mapped.tmdbId) {
+            tmdbId = mapped.tmdbId;
+            console.log(`[Guardaserie] Kitsu ${kitsuId} mapped to TMDB ID ${tmdbId}`);
+          }
+          if (mapped.imdbId) {
+            imdbId = mapped.imdbId;
+            console.log(`[Guardaserie] Kitsu ${kitsuId} mapped to IMDb ID ${imdbId}`);
+          }
+          if (mapped.mappedSeason && mapped.mappedEpisode) {
+            effectiveSeason = mapped.mappedSeason;
+            effectiveEpisode = mapped.mappedEpisode;
+            console.log(`[Guardaserie] Using TMDB episode mapping ${effectiveSeason}x${effectiveEpisode} (raw=${mapped.rawEpisodeNumber || "n/a"})`);
+          } else if (mapped.rawEpisodeNumber) {
+            effectiveEpisode = mapped.rawEpisodeNumber;
+            console.log(`[Guardaserie] Using mapped raw episode number ${effectiveEpisode}`);
+          }
+        } else {
+          console.log(`[Guardaserie] No Kitsu mapping found for ${kitsuId}`);
+        }
+      } else if (id.toString().startsWith("tt")) {
         const imdbCore = (id.toString().match(/tt\d{7,8}/) || [])[0] || id.toString();
         imdbId = imdbCore;
         if (contextTmdbId) {
@@ -191,30 +285,16 @@ function getStreams(id, type, season, episode, providerContext = null) {
             console.log(`[Guardaserie] Converted ${id} to TMDB ID: ${tmdbId}`);
           }
         }
-      } else if (id.toString().startsWith("kitsu:")) {
-        if (contextTmdbId) {
-          tmdbId = contextTmdbId;
-          if (hasContextSeason && season !== parsedContextSeason) {
-            console.log(`[Guardaserie] Prefetched mapping indicates Season ${parsedContextSeason}. Overriding requested Season ${season}`);
-            season = parsedContextSeason;
-          }
-          console.log(`[Guardaserie] Using prefetched mapping for ${id} -> TMDB ${tmdbId}, Season ${season}`);
-        } else {
-          const resolved = yield getTmdbFromKitsu(id);
-          if (resolved && resolved.tmdbId) {
-            tmdbId = resolved.tmdbId;
-            if (resolved.season) {
-              console.log(`[Guardaserie] Kitsu mapping indicates Season ${resolved.season}. Overriding requested Season ${season}`);
-              season = resolved.season;
-            }
-            console.log(`[Guardaserie] Resolved Kitsu ID ${id} to TMDB ID ${tmdbId}, Season ${season}`);
-          } else {
-            console.log(`[Guardaserie] Could not convert ${id} to TMDB ID`);
-            return [];
-          }
-        }
       } else if (id.toString().startsWith("tmdb:")) {
         tmdbId = id.toString().replace("tmdb:", "");
+      }
+
+      if ((!tmdbId || String(tmdbId).startsWith("kitsu:")) && imdbId) {
+        const byImdb = yield getTmdbIdFromImdb(imdbId, type);
+        if (byImdb) {
+          tmdbId = byImdb;
+          console.log(`[Guardaserie] Resolved IMDb ${imdbId} to TMDB ${tmdbId}`);
+        }
       }
 
       // Resolve IMDb ID for verification if we don't have it yet
@@ -250,22 +330,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
         title = imdbId;
       }
 
-      let mappedSeason = null;
-      let mappedEpisode = null;
-
-      if (season === 1 && episode > 20 && tmdbId) {
-        try {
-          const mapped = yield getSeasonEpisodeFromAbsolute(tmdbId, episode);
-          if (mapped) {
-            console.log(`[Guardaserie] Mapped absolute episode ${episode} to Season ${mapped.season}, Episode ${mapped.episode}`);
-            mappedSeason = mapped.season;
-            mappedEpisode = mapped.episode;
-          }
-        } catch (e) {
-          console.error("[Guardaserie] Error mapping episode:", e);
-        }
-      }
-
       const year = (showInfo && showInfo.first_air_date) ? showInfo.first_air_date.split("-")[0] : "";
       const metaYear = year ? parseInt(year) : null;
       let showUrl = null;
@@ -279,12 +343,12 @@ function getStreams(id, type, season, episode, providerContext = null) {
           params.append("do", "search");
           params.append("subaction", "search");
           params.append("story", imdbId);
-          const searchUrl = `${BASE_URL}/index.php?${params.toString()}`;
+          const searchUrl = `${getGuardaserieBaseUrl()}/index.php?${params.toString()}`;
 
           const searchResponse = yield fetch(searchUrl, {
             headers: {
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-              "Referer": BASE_URL
+              "Referer": getGuardaserieBaseUrl()
             }
           });
 
@@ -301,13 +365,13 @@ function getStreams(id, type, season, episode, providerContext = null) {
               if (foundTitle.toUpperCase().includes("[SUB ITA]")) {
                 console.log(`[Guardaserie] Filtering out subbed result from IMDb search: ${foundTitle}`);
               } else {
-                if (foundUrl.startsWith('/')) foundUrl = `${BASE_URL}${foundUrl}`;
+                if (foundUrl.startsWith('/')) foundUrl = `${getGuardaserieBaseUrl()}${foundUrl}`;
                 console.log(`[Guardaserie] Found match by IMDb ID: ${foundUrl}`);
 
                 const pageResponse = yield fetch(foundUrl, {
                   headers: {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Referer": BASE_URL
+                    "Referer": getGuardaserieBaseUrl()
                   }
                 });
 
@@ -331,11 +395,11 @@ function getStreams(id, type, season, episode, providerContext = null) {
         params.append("do", "search");
         params.append("subaction", "search");
         params.append("story", title);
-        const searchUrl = `${BASE_URL}/index.php?${params.toString()}`;
+        const searchUrl = `${getGuardaserieBaseUrl()}/index.php?${params.toString()}`;
         const searchResponse = yield fetch(searchUrl, {
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": BASE_URL
+            "Referer": getGuardaserieBaseUrl()
           }
         });
         const searchHtml = yield searchResponse.text();
@@ -383,7 +447,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
               const candidateRes = yield fetch(candidate.url, {
                 headers: {
                   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                  "Referer": BASE_URL
+                  "Referer": getGuardaserieBaseUrl()
                 }
               });
               if (!candidateRes.ok) continue;
@@ -506,6 +570,8 @@ function getStreams(id, type, season, episode, providerContext = null) {
         return [];
       }
       console.log(`[Guardaserie] Found show URL: ${showUrl}`);
+      season = effectiveSeason;
+      episode = effectiveEpisode;
       const episodeStr = `${season}x${episode}`;
       const episodeStrPadded = `${season}x${episode.toString().padStart(2, '0')}`;
 
@@ -515,20 +581,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
       if (!episodeMatch) {
         episodeRegex = new RegExp(`data-num="${episodeStrPadded}"`, "i");
         episodeMatch = episodeRegex.exec(showHtml);
-      }
-
-      if (!episodeMatch && mappedSeason) {
-        const mappedStr = `${mappedSeason}x${mappedEpisode}`;
-        const mappedStrPadded = `${mappedSeason}x${mappedEpisode.toString().padStart(2, '0')}`;
-
-        episodeRegex = new RegExp(`data-num="${mappedStr}"`, "i");
-        episodeMatch = episodeRegex.exec(showHtml);
-
-        if (!episodeMatch) {
-          episodeRegex = new RegExp(`data-num="${mappedStrPadded}"`, "i");
-          episodeMatch = episodeRegex.exec(showHtml);
-        }
-        if (episodeMatch) console.log(`[Guardaserie] Found mapped episode ${mappedSeason}x${mappedEpisode}`);
       }
 
       // Also try to find episode in text content if data-num is missing or different format
@@ -566,9 +618,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       console.log(`[Guardaserie] Found ${links.length} potential links`);
       const streamPromises = links.map((link) => __async(null, null, function* () {
         try {
-          const displaySeason = mappedSeason || season;
-          const displayEpisode = mappedEpisode || episode;
-          const displayName = `${title} ${displaySeason}x${displayEpisode}`;
+          const displayName = `${title} ${season}x${episode}`;
 
           let streamUrl = null;
           let playerName = "Unknown";

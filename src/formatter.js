@@ -1,13 +1,32 @@
-function isHttpsMp4Url(rawUrl) {
+function isMp4Url(rawUrl, depth = 0) {
     const url = String(rawUrl || '').trim();
     if (!url) return false;
 
+    const directMatch = (value) => /\.mp4(?:[?#].*)?$/i.test(String(value || '').trim());
+    if (directMatch(url)) return true;
+    if (depth >= 1) return false;
+
     try {
         const parsed = new URL(url);
-        if (parsed.protocol !== 'https:') return false;
-        return parsed.pathname.toLowerCase().endsWith('.mp4');
+        if (String(parsed.pathname || '').toLowerCase().endsWith('.mp4')) return true;
+
+        // Handle proxy URLs that carry the real media URL in query params
+        const nestedKeys = ['url', 'src', 'file', 'link', 'stream'];
+        for (const key of nestedKeys) {
+            const nested = parsed.searchParams.get(key);
+            if (!nested) continue;
+
+            let decoded = nested;
+            try {
+                decoded = decodeURIComponent(nested);
+            } catch (_) {
+                decoded = nested;
+            }
+            if (isMp4Url(decoded, depth + 1)) return true;
+        }
+        return false;
     } catch {
-        return /^https:\/\/.+\.mp4(?:[?#].*)?$/i.test(url);
+        return directMatch(url);
     }
 }
 
@@ -15,7 +34,7 @@ function shouldSetNotWebReady(url, headers, behaviorHints = {}) {
     const proxyHeaders = behaviorHints.proxyHeaders && behaviorHints.proxyHeaders.request;
     if (proxyHeaders && Object.keys(proxyHeaders).length > 0) return true;
     if (headers && Object.keys(headers).length > 0) return true;
-    return !isHttpsMp4Url(url);
+    return !isMp4Url(url);
 }
 
 function formatStream(stream, providerName) {
@@ -34,7 +53,7 @@ function formatStream(stream, providerName) {
     else if (quality === '1080p') quality = '🚀 FHD';
     else if (quality === '720p') quality = '💿 HD';
     else if (quality === '576p' || quality === '480p' || quality === '360p' || quality === '240p') quality = '💩 Low Quality';
-    else if (!quality || quality.toLowerCase() === 'auto') quality = 'Unknown';
+    else if (!quality || ['auto', 'unknown', 'unknow'].includes(String(quality).toLowerCase())) quality = 'Unknow';
 
     // Format title with emoji
     let title = `📁 ${stream.title || 'Stream'}`;
@@ -54,7 +73,7 @@ function formatStream(stream, providerName) {
     const desc = details.join(' | ');
 
     // Construct Name: Quality + Provider
-    // e.g. "🚀 FHD (📡 AnimeWorld)"
+    // e.g. "FHD (ProviderName)"
     // Use stream.name as provider name if it's not the quality, otherwise use providerName
     // In providers, stream.name is often the server name (e.g. "VixCloud")
     let pName = stream.name || stream.server || providerName;

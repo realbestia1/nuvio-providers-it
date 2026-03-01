@@ -204,7 +204,7 @@ var require_supervideo = __commonJS({
           if (url.startsWith("//")) url = "https:" + url;
           const id = url.split("/").pop();
           const embedUrl = `https://supervideo.tv/e/${id}`;
-          if (!refererBase) refererBase = "https://guardahd.stream/";
+          if (!refererBase) refererBase = "https://supervideo.tv/";
           const proxiedUrl = getProxiedUrl(embedUrl);
           let response = yield fetch(proxiedUrl, {
             headers: {
@@ -458,7 +458,7 @@ var require_vixcloud = __commonJS({
           const response = yield fetch(url, {
             headers: {
               "User-Agent": USER_AGENT2,
-              "Referer": "https://www.animeunity.so/"
+              "Referer": "https://vixcloud.co/"
             }
           });
           if (!response.ok) return null;

@@ -1,11 +1,70 @@
 const { USER_AGENT, getProxiedUrl } = require('../extractors/common');
 const { extractLoadm, extractUqload, extractDropLoad } = require('../extractors');
 const { formatStream } = require('../formatter');
-const { getTmdbFromKitsu } = require('../tmdb_helper');
 const { checkQualityFromPlaylist } = require('../quality_helper');
+const { getProviderUrl } = require('../provider_urls.js');
 
-const BASE_URL = 'https://guardoserie.space';
+function getGuardoserieBaseUrl() {
+    return getProviderUrl(
+        'guardoserie',
+        ['GUARDOSERIE_BASE_URL', 'GOS_BASE_URL']
+    );
+}
 const TMDB_API_KEY = '68e094699525b18a70bab2f86b1fa706';
+function getMappingApiUrl() {
+    return getProviderUrl(
+        'mapping_api',
+        ['MAPPING_API_URL']
+    ).replace(/\/+$/, "");
+}
+
+async function getIdsFromKitsu(kitsuId, season, episode) {
+    try {
+        if (!kitsuId) return null;
+        const params = new URLSearchParams();
+        const parsedEpisode = Number.parseInt(String(episode || ''), 10);
+        const parsedSeason = Number.parseInt(String(season || ''), 10);
+        if (Number.isInteger(parsedEpisode) && parsedEpisode > 0) {
+            params.set('ep', String(parsedEpisode));
+        } else {
+            params.set('ep', '1');
+        }
+        if (Number.isInteger(parsedSeason) && parsedSeason >= 0) {
+            params.set('s', String(parsedSeason));
+        }
+
+        const url = `${getMappingApiUrl()}/kitsu/${encodeURIComponent(String(kitsuId).trim())}?${params.toString()}`;
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        const payload = await response.json();
+        const ids = payload && payload.mappings && payload.mappings.ids ? payload.mappings.ids : {};
+        const tmdbEpisode =
+            (payload && payload.mappings && (payload.mappings.tmdb_episode || payload.mappings.tmdbEpisode)) ||
+            (payload && (payload.tmdb_episode || payload.tmdbEpisode)) ||
+            null;
+        const tmdbId = ids && /^\d+$/.test(String(ids.tmdb || '').trim()) ? String(ids.tmdb).trim() : null;
+        const imdbId = ids && /^tt\d+$/i.test(String(ids.imdb || '').trim()) ? String(ids.imdb).trim() : null;
+        const mappedSeason = Number.parseInt(String(
+            tmdbEpisode && (tmdbEpisode.season || tmdbEpisode.seasonNumber || tmdbEpisode.season_number) || ''
+        ), 10);
+        const mappedEpisode = Number.parseInt(String(
+            tmdbEpisode && (tmdbEpisode.episode || tmdbEpisode.episodeNumber || tmdbEpisode.episode_number) || ''
+        ), 10);
+        const rawEpisodeNumber = Number.parseInt(String(
+            tmdbEpisode && (tmdbEpisode.rawEpisodeNumber || tmdbEpisode.raw_episode_number || tmdbEpisode.rawEpisode) || ''
+        ), 10);
+        return {
+            tmdbId,
+            imdbId,
+            mappedSeason: Number.isInteger(mappedSeason) && mappedSeason > 0 ? mappedSeason : null,
+            mappedEpisode: Number.isInteger(mappedEpisode) && mappedEpisode > 0 ? mappedEpisode : null,
+            rawEpisodeNumber: Number.isInteger(rawEpisodeNumber) && rawEpisodeNumber > 0 ? rawEpisodeNumber : null
+        };
+    } catch (e) {
+        console.error('[Guardoserie] Kitsu mapping error:', e);
+        return null;
+    }
+}
 
 function extractEpisodeUrlFromSeriesPage(pageHtml, season, episode) {
     if (!pageHtml) return null;
@@ -59,7 +118,7 @@ function normalizePlayerLink(link) {
     if (normalized.startsWith('//')) {
         normalized = `https:${normalized}`;
     } else if (normalized.startsWith('/')) {
-        normalized = `${BASE_URL}${normalized}`;
+        normalized = `${getGuardoserieBaseUrl()}${normalized}`;
     } else if (!/^https?:\/\//i.test(normalized) && /(loadm|uqload|dropload)/i.test(normalized)) {
         normalized = `https://${normalized.replace(/^\/+/, '')}`;
     }
@@ -149,13 +208,40 @@ async function getShowInfo(tmdbId, type) {
 async function getStreams(id, type, season, episode, providerContext = null) {
     try {
         let tmdbId = id;
+        let effectiveSeason = Number.parseInt(String(season || ''), 10);
+        if (!Number.isInteger(effectiveSeason) || effectiveSeason < 1) effectiveSeason = 1;
+        let effectiveEpisode = Number.parseInt(String(episode || ''), 10);
+        if (!Number.isInteger(effectiveEpisode) || effectiveEpisode < 1) effectiveEpisode = 1;
         const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || ''))
             ? String(providerContext.tmdbId)
             : null;
-        const parsedContextSeason = parseInt(providerContext && providerContext.canonicalSeason, 10);
-        const hasContextSeason = Number.isInteger(parsedContextSeason) && parsedContextSeason >= 0;
+        const contextKitsuId = providerContext && /^\d+$/.test(String(providerContext.kitsuId || ''))
+            ? String(providerContext.kitsuId)
+            : null;
+        const shouldIncludeSeasonHintForKitsu =
+            providerContext && providerContext.seasonProvided === true;
 
-        if (id.toString().startsWith('tt')) {
+        if (id.toString().startsWith('kitsu:') || contextKitsuId) {
+            const kitsuId =
+                contextKitsuId ||
+                (((id.toString().match(/^kitsu:(\d+)/i) || [])[1]) || null);
+            const seasonHintForKitsu = shouldIncludeSeasonHintForKitsu ? season : null;
+            const mapped = kitsuId ? await getIdsFromKitsu(kitsuId, seasonHintForKitsu, episode) : null;
+            if (mapped && mapped.tmdbId) {
+                tmdbId = mapped.tmdbId;
+                console.log(`[Guardoserie] Kitsu ${kitsuId} mapped to TMDB ID ${tmdbId}`);
+                if (mapped.mappedSeason && mapped.mappedEpisode) {
+                    effectiveSeason = mapped.mappedSeason;
+                    effectiveEpisode = mapped.mappedEpisode;
+                    console.log(`[Guardoserie] Using TMDB episode mapping ${effectiveSeason}x${effectiveEpisode} (raw=${mapped.rawEpisodeNumber || 'n/a'})`);
+                } else if (mapped.rawEpisodeNumber) {
+                    effectiveEpisode = mapped.rawEpisodeNumber;
+                    console.log(`[Guardoserie] Using mapped raw episode number ${effectiveEpisode}`);
+                }
+            } else {
+                console.log(`[Guardoserie] No Kitsu->TMDB mapping found for ${kitsuId}`);
+            }
+        } else if (id.toString().startsWith('tt')) {
             if (contextTmdbId) {
                 tmdbId = contextTmdbId;
                 console.log(`[Guardoserie] Using prefetched TMDB ID ${tmdbId} for ${id}`);
@@ -167,20 +253,6 @@ async function getStreams(id, type, season, episode, providerContext = null) {
                     const data = await response.json();
                     if (type === 'movie' && data.movie_results?.length > 0) tmdbId = data.movie_results[0].id;
                     else if ((type === 'series' || type === 'tv') && data.tv_results?.length > 0) tmdbId = data.tv_results[0].id;
-                }
-            }
-        } else if (id.toString().startsWith('kitsu:')) {
-            if (contextTmdbId) {
-                tmdbId = contextTmdbId;
-                if (hasContextSeason && season !== parsedContextSeason) {
-                    season = parsedContextSeason;
-                }
-                console.log(`[Guardoserie] Using prefetched mapping for ${id} -> TMDB ${tmdbId}, Season ${season}`);
-            } else {
-                const resolved = await getTmdbFromKitsu(id);
-                if (resolved && resolved.tmdbId) {
-                    tmdbId = resolved.tmdbId;
-                    if (resolved.season) season = resolved.season;
                 }
             }
         } else if (id.toString().startsWith('tmdb:')) {
@@ -198,7 +270,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
 
         // Search helper
         const searchProvider = async (query) => {
-            const searchUrl = `${BASE_URL}/wp-admin/admin-ajax.php`;
+            const searchUrl = `${getGuardoserieBaseUrl()}/wp-admin/admin-ajax.php`;
             const body = `s=${encodeURIComponent(query)}&action=searchwp_live_search&swpengine=default&swpquery=${encodeURIComponent(query)}`;
 
             const response = await fetch(searchUrl, {
@@ -206,8 +278,8 @@ async function getStreams(id, type, season, episode, providerContext = null) {
                 headers: {
                     'User-Agent': USER_AGENT,
                     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'Origin': BASE_URL,
-                    'Referer': `${BASE_URL}/`
+                    'Origin': getGuardoserieBaseUrl(),
+                    'Referer': `${getGuardoserieBaseUrl()}/`
                 },
                 body: body
             });
@@ -291,7 +363,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
                         'User-Agent': USER_AGENT,
                         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                         'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
-                        'Referer': `${BASE_URL}/`
+                        'Referer': `${getGuardoserieBaseUrl()}/`
                     } });
                     if (!pageRes.ok) continue;
                     const pageHtml = await pageRes.text();
@@ -354,11 +426,13 @@ async function getStreams(id, type, season, episode, providerContext = null) {
 
         let episodeUrl = targetUrl;
         if (type === 'tv' || type === 'series') {
+            season = effectiveSeason;
+            episode = effectiveEpisode;
             const pageRes = await fetch(targetUrl, { headers: { 
                 'User-Agent': USER_AGENT,
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
-                'Referer': `${BASE_URL}/`
+                'Referer': `${getGuardoserieBaseUrl()}/`
             } });
             const pageHtml = await pageRes.text();
             const resolvedEpisodeUrl = extractEpisodeUrlFromSeriesPage(pageHtml, season, episode);
@@ -375,7 +449,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
             'User-Agent': USER_AGENT,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Referer': `${BASE_URL}/`
+            'Referer': `${getGuardoserieBaseUrl()}/`
         } });
         const finalHtml = await finalRes.text();
 
@@ -390,7 +464,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
                     'User-Agent': USER_AGENT,
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                     'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
-                    'Referer': `${BASE_URL}/`
+                    'Referer': `${getGuardoserieBaseUrl()}/`
                 } });
                 const retryHtml = await retryRes.text();
                 const fallbackPlayerLink = extractPlayerLinkFromHtml(retryHtml);

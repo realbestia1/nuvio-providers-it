@@ -1,21 +1,31 @@
+const { getProviderUrl } = require("../provider_urls.js");
 
-const BASE_URL = "https://vixsrc.to";
+function getStreamingCommunityBaseUrl() {
+  return getProviderUrl(
+    "streamingcommunity",
+    ["STREAMINGCOMMUNITY_BASE_URL", "SC_BASE_URL"]
+  );
+}
+
 const { formatStream } = require('../formatter.js');
 require('../fetch_helper.js');
 const { checkQualityFromText } = require('../quality_helper.js');
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
-const COMMON_HEADERS = {
-  "User-Agent": USER_AGENT,
-  "Referer": "https://vixsrc.to/",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-  "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-  "Sec-Fetch-Dest": "document",
-  "Sec-Fetch-Mode": "navigate",
-  "Sec-Fetch-Site": "none",
-  "Sec-Fetch-User": "?1",
-  "Upgrade-Insecure-Requests": "1"
-};
+
+function getCommonHeaders() {
+  return {
+    "User-Agent": USER_AGENT,
+    "Referer": `${getStreamingCommunityBaseUrl()}/`,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1"
+  };
+}
 
 function getQualityFromName(qualityStr) {
   if (!qualityStr) return "Unknown";
@@ -91,20 +101,16 @@ async function getMetadata(id, type) {
 
 async function getStreams(id, type, season, episode, providerContext = null) {
   const normalizedType = String(type).toLowerCase();
+  const baseUrl = getStreamingCommunityBaseUrl();
+  const commonHeaders = getCommonHeaders();
   let tmdbId = id.toString();
   let resolvedSeason = season;
   const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || ""))
     ? String(providerContext.tmdbId)
     : null;
-  const parsedContextSeason = parseInt(providerContext && providerContext.canonicalSeason, 10);
-  const hasContextSeason = Number.isInteger(parsedContextSeason) && parsedContextSeason >= 0;
 
   if (contextTmdbId) {
     tmdbId = contextTmdbId;
-    if (normalizedType === "tv" && hasContextSeason && resolvedSeason !== parsedContextSeason) {
-      console.log(`[StreamingCommunity] Prefetched mapping indicates Season ${parsedContextSeason}. Overriding requested Season ${resolvedSeason}`);
-      resolvedSeason = parsedContextSeason;
-    }
   } else if (tmdbId.startsWith("tmdb:")) {
     tmdbId = tmdbId.replace("tmdb:", "");
   } else if (tmdbId.startsWith("tt")) {
@@ -130,9 +136,9 @@ async function getStreams(id, type, season, episode, providerContext = null) {
 
   let url;
   if (normalizedType === "movie") {
-    url = `${BASE_URL}/movie/${tmdbId}`;
+    url = `${baseUrl}/movie/${tmdbId}`;
   } else if (normalizedType === "tv") {
-    url = `${BASE_URL}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
+    url = `${baseUrl}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
   } else {
     return [];
   }
@@ -140,7 +146,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
   try {
     console.log(`[StreamingCommunity] Fetching page: ${url}`);
     const response = await fetch(url, {
-      headers: COMMON_HEADERS
+      headers: commonHeaders
     });
     if (!response.ok) {
       console.error(`[StreamingCommunity] Failed to fetch page: ${response.status}`);
@@ -168,7 +174,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
       let quality = "720p";
       try {
         const playlistResponse = await fetch(streamUrl, {
-          headers: COMMON_HEADERS
+          headers: commonHeaders
         });
         if (playlistResponse.ok) {
           const playlistText = await playlistResponse.text();
@@ -202,7 +208,7 @@ async function getStreams(id, type, season, episode, providerContext = null) {
         url: streamUrl,
         quality: normalizedQuality,
         type: "direct",
-        headers: COMMON_HEADERS
+        headers: commonHeaders
       };
 
       return [formatStream(result, "StreamingCommunity")].filter(s => s !== null);

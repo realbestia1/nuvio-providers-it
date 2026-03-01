@@ -388,15 +388,16 @@ var require_fetch_helper = __commonJS({
   }
 });
 
-// src/animeworld/index.js
+// src/animesaturn/index.js
+var cheerio = require("cheerio");
 var { formatStream } = require_formatter();
 var { checkQualityFromPlaylist } = require_quality_helper();
 var { getProviderUrl } = require_provider_urls();
 require_fetch_helper();
-function getWorldBaseUrl() {
+function getSaturnBaseUrl() {
   return getProviderUrl(
-    "animeworld",
-    ["ANIMEWORLD_BASE_URL", "AW_BASE_URL"]
+    "animesaturn",
+    ["ANIMESATURN_BASE_URL", "AS_BASE_URL"]
   );
 }
 function getMappingApiBase() {
@@ -405,18 +406,13 @@ function getMappingApiBase() {
     ["MAPPING_API_URL"]
   ).replace(/\/+$/, "");
 }
-var USER_AGENT = process.env.AW_USER_AGENT || process.env.AS_USER_AGENT || process.env.AU_USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
-var FETCH_TIMEOUT = Number.parseInt(process.env.ANIMEWORLD_FETCH_TIMEOUT_MS || "10000", 10) || 1e4;
+var USER_AGENT = process.env.AS_USER_AGENT || process.env.AW_USER_AGENT || process.env.AU_USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+var FETCH_TIMEOUT = Number.parseInt(process.env.ANIMESATURN_FETCH_TIMEOUT_MS || "10000", 10) || 1e4;
 var TTL = {
   http: 5 * 60 * 1e3,
   page: 15 * 60 * 1e3,
-  info: 5 * 60 * 1e3,
+  watch: 5 * 60 * 1e3,
   mapping: 2 * 60 * 1e3
-};
-var caches = {
-  http: /* @__PURE__ */ new Map(),
-  mapping: /* @__PURE__ */ new Map(),
-  inflight: /* @__PURE__ */ new Map()
 };
 var BLOCKED_DOMAINS = [
   "jujutsukaisenanime.com",
@@ -424,6 +420,11 @@ var BLOCKED_DOMAINS = [
   "dragonballhd.it",
   "narutolegend.it"
 ];
+var caches = {
+  http: /* @__PURE__ */ new Map(),
+  mapping: /* @__PURE__ */ new Map(),
+  inflight: /* @__PURE__ */ new Map()
+};
 function getCached(map, key) {
   const entry = map.get(key);
   if (!entry) return void 0;
@@ -448,26 +449,6 @@ function uniqueStrings(values) {
   }
   return out;
 }
-function decodeHtmlEntities(raw) {
-  const decodedNumeric = String(raw || "").replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
-    const codePoint = Number.parseInt(hex, 16);
-    if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 1114111) return _;
-    try {
-      return String.fromCodePoint(codePoint);
-    } catch (e) {
-      return _;
-    }
-  }).replace(/&#(\d+);/g, (_, dec) => {
-    const codePoint = Number.parseInt(dec, 10);
-    if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 1114111) return _;
-    try {
-      return String.fromCodePoint(codePoint);
-    } catch (e) {
-      return _;
-    }
-  });
-  return decodedNumeric.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
-}
 function parsePositiveInt(value) {
   const parsed = Number.parseInt(String(value || ""), 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
@@ -486,12 +467,12 @@ function toAbsoluteUrl(href, base = null) {
   if (!trimmed) return null;
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
   try {
-    return new URL(trimmed, base || getWorldBaseUrl()).toString();
+    return new URL(trimmed, base || getSaturnBaseUrl()).toString();
   } catch (e) {
     return null;
   }
 }
-function normalizeAnimeWorldPath(pathOrUrl) {
+function normalizeAnimeSaturnPath(pathOrUrl) {
   if (!pathOrUrl) return null;
   let value = String(pathOrUrl).trim();
   if (!value) return null;
@@ -504,15 +485,31 @@ function normalizeAnimeWorldPath(pathOrUrl) {
   }
   if (!value.startsWith("/")) value = `/${value}`;
   value = value.replace(/\/+$/, "");
-  const match = value.match(/^\/(?:play\/[^/?#]+|anime\/[^/?#]+)/i);
+  const match = value.match(/^\/anime\/[^/?#]+/i);
   return match ? match[0] : null;
 }
-function buildWorldUrl(pathOrUrl) {
+function normalizeEpisodePath(pathOrUrl) {
+  if (!pathOrUrl) return null;
+  let value = String(pathOrUrl).trim();
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      value = new URL(value).pathname;
+    } catch (e) {
+      return null;
+    }
+  }
+  if (!value.startsWith("/")) value = `/${value}`;
+  value = value.replace(/\/+$/, "");
+  const match = value.match(/^\/ep\/[^/?#]+/i);
+  return match ? match[0] : null;
+}
+function buildSaturnUrl(pathOrUrl) {
   const text = String(pathOrUrl || "").trim();
   if (!text) return null;
   if (/^https?:\/\//i.test(text)) return text;
-  if (text.startsWith("/")) return `${getWorldBaseUrl()}${text}`;
-  return `${getWorldBaseUrl()}/${text}`;
+  if (text.startsWith("/")) return `${getSaturnBaseUrl()}${text}`;
+  return `${getSaturnBaseUrl()}/${text}`;
 }
 function inferSourceTag(title, animePath) {
   const titleText = String(title || "").toLowerCase();
@@ -525,40 +522,50 @@ function resolveLanguageEmoji(sourceTag) {
   return String(sourceTag || "").toUpperCase() === "ITA" ? "\u{1F1EE}\u{1F1F9}" : "\u{1F1EF}\u{1F1F5}";
 }
 function sanitizeAnimeTitle(rawTitle) {
-  let text = decodeHtmlEntities(rawTitle).trim();
+  let text = String(rawTitle || "").trim();
   if (!text) return null;
-  text = text.replace(/\s*-\s*AnimeWorld.*$/i, "").replace(/\s*-\s*AnimeUnity.*$/i, "").replace(/\s+Streaming.*$/i, "").replace(/\s+episodio\s*\d+(?:[.,]\d+)?\b/gi, "").replace(/\s+episode\s*\d+(?:[.,]\d+)?\b/gi, "").trim();
+  text = text.replace(/^\s*AnimeSaturn\s*-\s*/i, "").replace(/\s*-\s*AnimeSaturn.*$/i, "").replace(/\s+Streaming.*$/i, "").replace(/\s+Episodi.*$/i, "").replace(/\s+episodio\s*\d+(?:[.,]\d+)?\b/gi, "").replace(/\s+episode\s*\d+(?:[.,]\d+)?\b/gi, "").trim();
   text = text.replace(/\s*[\[(]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*[\])]\s*/gi, " ").replace(/\s*[-–_|:]\s*(?:SUB\s*ITA|ITA|SUB|DUB(?:BED)?|DOPPIATO)\s*$/gi, "").replace(/\s{2,}/g, " ").replace(/\s*[-–_|:]\s*$/g, "").trim();
   return text || null;
 }
-function parseTagAttributes(tag) {
-  var _a, _b;
-  const attrs = {};
-  const regex = /([A-Za-z_:][A-Za-z0-9_:\-.]*)\s*=\s*("([^"]*)"|'([^']*)')/g;
-  let match;
-  while ((match = regex.exec(String(tag || ""))) !== null) {
-    const key = String(match[1] || "").trim().toLowerCase();
-    const value = decodeHtmlEntities((_b = (_a = match[3]) != null ? _a : match[4]) != null ? _b : "").trim();
-    if (!key) continue;
-    attrs[key] = value;
-  }
-  return attrs;
-}
 function parseEpisodeNumber(value, fallbackNum) {
-  const text = String(value || "").trim();
-  const directInt = parsePositiveInt(text);
-  if (directInt) return directInt;
-  const floatMatch = text.match(/(\d+(?:[.,]\d+)?)/);
-  if (floatMatch) {
-    const parsed = Number.parseFloat(floatMatch[1].replace(",", "."));
-    if (Number.isFinite(parsed) && parsed > 0) return Math.round(parsed);
+  const raw = String(value || "").trim();
+  if (!raw) return fallbackNum;
+  const byHref = raw.match(/-ep-(\d+)/i);
+  if (byHref) {
+    const parsed = Number.parseInt(byHref[1], 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  const byLabel = raw.match(/episodio\s*(\d+)/i);
+  if (byLabel) {
+    const parsed = Number.parseInt(byLabel[1], 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  const byAny = raw.match(/(\d{1,4})/);
+  if (byAny) {
+    const parsed = Number.parseInt(byAny[1], 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
   }
   return fallbackNum;
 }
+function isDirectMediaPath(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (!/^https?:\/\//i.test(text)) {
+    return /\.(?:mp4|m3u8)(?:[?#].*)?$/i.test(text);
+  }
+  try {
+    const parsed = new URL(text);
+    const path = String(parsed.pathname || "").toLowerCase();
+    return path.endsWith(".mp4") || path.endsWith(".m3u8");
+  } catch (e) {
+    return /\.(?:mp4|m3u8)(?:[?#].*)?$/i.test(text);
+  }
+}
 function normalizePlayableMediaUrl(rawUrl, depth = 0) {
-  const absolute = toAbsoluteUrl(rawUrl, getWorldBaseUrl());
+  const absolute = toAbsoluteUrl(rawUrl, getSaturnBaseUrl());
   if (!absolute) return null;
-  if (/\.(?:mp4|m3u8)(?:[?#].*)?$/i.test(absolute)) return absolute;
+  if (isDirectMediaPath(absolute)) return absolute;
   if (depth >= 1) return null;
   let parsed;
   try {
@@ -587,170 +594,6 @@ function extractQualityHint(value) {
   const text = String(value || "");
   const match = text.match(/(\d{3,4}p)/i);
   return match ? match[1] : "Unknown";
-}
-function collectMediaLinksFromHtml(html) {
-  const links = [];
-  const seen = /* @__PURE__ */ new Set();
-  const add = (rawUrl) => {
-    const normalized = normalizePlayableMediaUrl(rawUrl);
-    if (!normalized || seen.has(normalized)) return;
-    seen.add(normalized);
-    links.push(normalized);
-  };
-  const raw = String(html || "");
-  const variants = [raw, raw.replace(/\\\//g, "/")];
-  for (const text of variants) {
-    let match;
-    const directRegex = /https?:\/\/[^\s"'<>\\]+(?:\.mp4|\.m3u8)(?:[^\s"'<>\\]*)?/gi;
-    while ((match = directRegex.exec(text)) !== null) add(match[0]);
-    const encodedRegex = /https%3A%2F%2F[^\s"'<>\\]+/gi;
-    while ((match = encodedRegex.exec(text)) !== null) {
-      try {
-        add(decodeURIComponent(match[0]));
-      } catch (e) {
-      }
-    }
-    const sourceRegex = /(?:file|src|url|link)\s*[:=]\s*["']([^"']+)["']/gi;
-    while ((match = sourceRegex.exec(text)) !== null) add(match[1]);
-  }
-  return links;
-}
-function extractTitleFromHtml(html) {
-  const raw = String(html || "");
-  const ogTitle = /<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["'][^>]*>/i.exec(raw);
-  if (ogTitle && ogTitle[1]) return sanitizeAnimeTitle(ogTitle[1]);
-  const titleTag = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(raw);
-  if (titleTag && titleTag[1]) return sanitizeAnimeTitle(titleTag[1]);
-  return null;
-}
-function normalizeEpisodesList(sourceEpisodes = []) {
-  var _a;
-  if (!Array.isArray(sourceEpisodes) || sourceEpisodes.length === 0) return [];
-  const out = [];
-  const seen = /* @__PURE__ */ new Set();
-  for (let index = 0; index < sourceEpisodes.length; index += 1) {
-    const entry = sourceEpisodes[index] || {};
-    const num = parseEpisodeNumber(entry.num, index + 1);
-    const episodeId = parsePositiveInt((_a = entry.episodeId) != null ? _a : entry.id);
-    const episodeToken = String(entry.episodeToken || entry.token || "").trim() || null;
-    if (!episodeId && !episodeToken) continue;
-    const rangeLabel = String(entry.rangeLabel || "").trim() || null;
-    const baseLabel = String(entry.baseLabel || "").trim() || null;
-    const commentLabel = String(entry.commentLabel || "").trim() || null;
-    const token = String(
-      entry.token || (episodeToken ? `tok:${episodeToken}` : episodeId ? `ep:${episodeId}` : `ep-${num}`)
-    ).trim() || `ep-${num}`;
-    const key = `${num}|${episodeId || ""}|${episodeToken || ""}|${token}|${rangeLabel || ""}|${baseLabel || ""}|${commentLabel || ""}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
-      num,
-      token,
-      episodeId: episodeId || null,
-      episodeToken,
-      rangeLabel,
-      baseLabel,
-      commentLabel
-    });
-  }
-  out.sort((a, b) => a.num - b.num);
-  return out;
-}
-function parseEpisodesFromPageHtml(html) {
-  const raw = String(html || "");
-  const episodes = [];
-  const anchorRegex = /<a\b[^>]*(?:data-episode-num=(?:"[^"]*"|'[^']*'))[^>]*(?:data-id=(?:"[^"]*"|'[^']*'))[^>]*>|<a\b[^>]*(?:data-id=(?:"[^"]*"|'[^']*'))[^>]*(?:data-episode-num=(?:"[^"]*"|'[^']*'))[^>]*>/gi;
-  const tags = raw.match(anchorRegex) || [];
-  for (let index = 0; index < tags.length; index += 1) {
-    const attrs = parseTagAttributes(tags[index]);
-    const episodeId = parsePositiveInt(attrs["data-episode-id"] || attrs["data-id"]);
-    const episodeToken = String(attrs["data-id"] || "").trim() || null;
-    if (!episodeId && !episodeToken) continue;
-    const num = parseEpisodeNumber(attrs["data-episode-num"], index + 1);
-    episodes.push({
-      num,
-      episodeId,
-      episodeToken,
-      rangeLabel: attrs["data-num"] || null,
-      baseLabel: attrs["data-base"] || null,
-      commentLabel: attrs["data-comment"] || null
-    });
-  }
-  return normalizeEpisodesList(episodes);
-}
-function parseAnimeWorldPage(html, fallback = {}) {
-  const title = extractTitleFromHtml(html) || sanitizeAnimeTitle(fallback.title) || null;
-  const animePath = normalizeAnimeWorldPath(fallback.animePath || null);
-  const episodes = parseEpisodesFromPageHtml(html);
-  return {
-    title,
-    animePath,
-    sourceTag: inferSourceTag(title, animePath),
-    episodes
-  };
-}
-function pickEpisodeEntry(episodes, requestedEpisode, mediaType = "tv") {
-  const list = normalizeEpisodesList(episodes);
-  if (list.length === 0) return null;
-  if (mediaType === "movie") return list[0];
-  const episode = normalizeRequestedEpisode(requestedEpisode);
-  const byNum = list.find((entry) => entry.num === episode);
-  if (byNum) return byNum;
-  const byIndex = list[episode - 1];
-  if (byIndex) return byIndex;
-  if (episode === 1) return list[0];
-  return null;
-}
-function getEpisodeDisplayLabel(entry, requestedNumber = null) {
-  if (!entry) return requestedNumber ? String(requestedNumber) : null;
-  const spanSources = [entry.rangeLabel, entry.baseLabel, entry.commentLabel];
-  for (const source of spanSources) {
-    const text = String(source || "").trim();
-    const numeric = parsePositiveInt(text);
-    if (numeric) return String(numeric);
-    const match = text.match(/\d+(?:\.\d+)?/);
-    if (match) return match[0];
-  }
-  if (parsePositiveInt(entry.num)) return String(entry.num);
-  if (requestedNumber) return String(requestedNumber);
-  return null;
-}
-function normalizeHostLabel(rawUrl) {
-  try {
-    const host = new URL(String(rawUrl || "")).hostname.replace(/^www\./i, "").toLowerCase();
-    if (!host) return "";
-    if (host.includes("sweetpixel")) return "SweetPixel";
-    if (host.includes("stream")) return "Stream";
-    const first = host.split(".")[0] || host;
-    return first.charAt(0).toUpperCase() + first.slice(1);
-  } catch (e) {
-    return "";
-  }
-}
-function collectGrabberCandidates(infoData) {
-  const urls = [];
-  const directKeys = ["grabber", "url", "link", "file", "stream"];
-  for (const key of directKeys) {
-    const value = infoData == null ? void 0 : infoData[key];
-    if (typeof value === "string" && value.trim()) urls.push(value.trim());
-  }
-  const listKeys = ["links", "streams", "servers", "sources"];
-  for (const key of listKeys) {
-    const value = infoData == null ? void 0 : infoData[key];
-    if (!Array.isArray(value)) continue;
-    for (const item of value) {
-      if (typeof item === "string" && item.trim()) {
-        urls.push(item.trim());
-        continue;
-      }
-      if (!item || typeof item !== "object") continue;
-      const candidate = item.grabber || item.url || item.link || item.file || item.stream || null;
-      if (candidate && String(candidate).trim()) {
-        urls.push(String(candidate).trim());
-      }
-    }
-  }
-  return uniqueStrings(urls);
 }
 function fetchWithTimeout(_0) {
   return __async(this, arguments, function* (url, options = {}, timeoutMs = FETCH_TIMEOUT) {
@@ -811,184 +654,373 @@ function fetchResource(_0) {
     }
   });
 }
-function extractSessionCookie(setCookieHeader) {
-  const text = String(setCookieHeader || "");
-  const match = text.match(/sessionId=[^;,\s]+/i);
-  return match ? match[0] : null;
-}
-function extractCsrfTokenFromHtml(html) {
-  const match = /<meta[^>]*name=["']csrf-token["'][^>]*content=["']([^"']+)["'][^>]*>/i.exec(String(html || ""));
-  return match && match[1] ? String(match[1]).trim() : null;
-}
-function fetchAnimePageContext(animeUrl, cacheKey) {
-  return __async(this, null, function* () {
-    const key = `anime-page-context:${cacheKey}`;
-    const cached = getCached(caches.http, key);
-    if (cached !== void 0) return cached;
-    const response = yield fetchWithTimeout(
-      animeUrl,
-      {
-        method: "GET",
-        headers: {
-          "user-agent": USER_AGENT,
-          "accept-language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
-        },
-        redirect: "follow"
-      },
-      FETCH_TIMEOUT
-    );
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText} for ${animeUrl}`);
+function extractWatchUrlsFromHtml(html, expectedFileId = null) {
+  const text = String(html || "");
+  const values = /* @__PURE__ */ new Set();
+  let match;
+  const absoluteRegex = /https?:\/\/[^\s"'<>\\]+\/watch\?file=[^"'<>\\\s]+/gi;
+  while ((match = absoluteRegex.exec(text)) !== null) {
+    values.add(match[0]);
+  }
+  const relativeRegex = /\/watch\?file=[^"'<>\\\s]+/gi;
+  while ((match = relativeRegex.exec(text)) !== null) {
+    values.add(buildSaturnUrl(match[0]));
+  }
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const candidate of values) {
+    const absolute = toAbsoluteUrl(candidate);
+    if (!absolute || seen.has(absolute)) continue;
+    try {
+      const parsed = new URL(absolute);
+      if (parsed.pathname !== "/watch") continue;
+      const fileParam = parsed.searchParams.get("file");
+      if (!fileParam) continue;
+      if (expectedFileId && fileParam !== expectedFileId) continue;
+      seen.add(absolute);
+      out.push(absolute);
+      if (!parsed.searchParams.has("s")) {
+        parsed.searchParams.set("s", "alt");
+        const altUrl = parsed.toString();
+        if (!seen.has(altUrl)) {
+          seen.add(altUrl);
+          out.push(altUrl);
+        }
+      }
+    } catch (e) {
     }
-    const html = yield response.text();
-    const rawSetCookie = response.headers.get("set-cookie") || "";
-    const sessionCookie = extractSessionCookie(rawSetCookie);
-    const csrfToken = extractCsrfTokenFromHtml(html);
-    const context = { html, sessionCookie, csrfToken };
-    setCached(caches.http, key, context, TTL.page);
-    return context;
+  }
+  return out;
+}
+function parseAnimeSaturnPage(html, fallback = {}) {
+  const $ = cheerio.load(html);
+  const pageTitle = $("h1").first().text().trim() || $("meta[property='og:title']").attr("content") || $("title").first().text().trim() || null;
+  const title = sanitizeAnimeTitle(fallback.title) || sanitizeAnimeTitle(pageTitle) || null;
+  const animePath = normalizeAnimeSaturnPath(fallback.animePath || null);
+  const sourceTag = inferSourceTag(title, animePath);
+  const episodes = [];
+  const seenEpisodePath = /* @__PURE__ */ new Set();
+  $("a[href*='/ep/']").each((index, element) => {
+    const anchor = $(element);
+    const href = normalizeEpisodePath(anchor.attr("href"));
+    if (!href || seenEpisodePath.has(href)) return;
+    seenEpisodePath.add(href);
+    const probe = `${href} ${anchor.text() || ""} ${anchor.attr("title") || ""}`;
+    const num = parseEpisodeNumber(probe, index + 1);
+    episodes.push({
+      num,
+      token: href,
+      episodePath: href,
+      watchUrl: null
+    });
+  });
+  if (episodes.length === 0) {
+    const watchUrls = extractWatchUrlsFromHtml(html);
+    if (watchUrls.length > 0) {
+      episodes.push({
+        num: 1,
+        token: "watch-1",
+        episodePath: null,
+        watchUrl: watchUrls[0]
+      });
+    }
+  }
+  const relatedAnimePaths = [];
+  const seenRelated = /* @__PURE__ */ new Set();
+  $("a[href*='/anime/']").each((_, element) => {
+    const anchor = $(element);
+    const relatedPath = normalizeAnimeSaturnPath(anchor.attr("href"));
+    if (!relatedPath || seenRelated.has(relatedPath)) return;
+    if (animePath && relatedPath === animePath) return;
+    const probe = `${anchor.text() || ""} ${anchor.attr("title") || ""} ${relatedPath}`.toLowerCase();
+    if (!probe.includes("ita")) return;
+    seenRelated.add(relatedPath);
+    relatedAnimePaths.push(relatedPath);
+  });
+  episodes.sort((a, b) => a.num - b.num);
+  return {
+    title,
+    animePath,
+    sourceTag,
+    episodes,
+    relatedAnimePaths
+  };
+}
+function normalizeEpisodesList(sourceEpisodes = []) {
+  var _a;
+  if (!Array.isArray(sourceEpisodes) || sourceEpisodes.length === 0) return [];
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (let index = 0; index < sourceEpisodes.length; index += 1) {
+    const entry = sourceEpisodes[index] || {};
+    const numRaw = Number.parseInt(String((_a = entry.num) != null ? _a : index + 1), 10);
+    const num = Number.isFinite(numRaw) && numRaw > 0 ? numRaw : index + 1;
+    const episodePath = normalizeEpisodePath(entry.episodePath || entry.href || entry.token || null);
+    const watchUrl = toAbsoluteUrl(entry.watchUrl || null);
+    const token = String(entry.token || episodePath || watchUrl || `ep-${num}`).trim();
+    const key = `${num}|${episodePath || ""}|${watchUrl || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ num, token, episodePath, watchUrl });
+  }
+  out.sort((a, b) => a.num - b.num);
+  return out;
+}
+function mergeEpisodeLists(existingEpisodes = [], nextEpisodes = []) {
+  const map = /* @__PURE__ */ new Map();
+  function setEpisode(entry) {
+    if (!entry) return;
+    const num = Number.parseInt(String(entry.num || ""), 10);
+    if (!Number.isFinite(num) || num <= 0) return;
+    const current = map.get(num) || { num, token: null, episodePath: null, watchUrl: null };
+    map.set(num, {
+      num,
+      token: entry.token || current.token || null,
+      episodePath: entry.episodePath || current.episodePath || null,
+      watchUrl: entry.watchUrl || current.watchUrl || null
+    });
+  }
+  normalizeEpisodesList(existingEpisodes).forEach(setEpisode);
+  normalizeEpisodesList(nextEpisodes).forEach(setEpisode);
+  return [...map.values()].sort((a, b) => a.num - b.num);
+}
+function pickEpisodeEntry(episodes, requestedEpisode, mediaType = "tv") {
+  const list = normalizeEpisodesList(episodes);
+  if (list.length === 0) return null;
+  if (mediaType === "movie") return list[0];
+  const episode = normalizeRequestedEpisode(requestedEpisode);
+  const byNum = list.find((entry) => entry.num === episode);
+  if (byNum) return byNum;
+  const byIndex = list[episode - 1];
+  if (byIndex) return byIndex;
+  if (episode === 1) return list[0];
+  return null;
+}
+function collectMediaLinksFromWatchHtml(html) {
+  const $ = cheerio.load(String(html || ""));
+  const links = [];
+  const seen = /* @__PURE__ */ new Set();
+  function addLink(href, label) {
+    const playable = normalizePlayableMediaUrl(href);
+    if (!playable || seen.has(playable)) return;
+    seen.add(playable);
+    links.push({ href: playable, label });
+  }
+  $("source[src], video source[src]").each((_, element) => {
+    addLink($(element).attr("src"), "Player");
+  });
+  const rawHtml = String(html || "");
+  const variants = [rawHtml, rawHtml.replace(/\\\//g, "/")];
+  for (const text of variants) {
+    let match;
+    const directRegex = /https?:\/\/[^\s"'<>\\]+(?:\.mp4|\.m3u8)(?:[^\s"'<>\\]*)?/gi;
+    while ((match = directRegex.exec(text)) !== null) {
+      addLink(match[0], "Player");
+    }
+    const encodedRegex = /https%3A%2F%2F[^\s"'<>\\]+/gi;
+    while ((match = encodedRegex.exec(text)) !== null) {
+      try {
+        addLink(decodeURIComponent(match[0]), "Player");
+      } catch (e) {
+      }
+    }
+    const sourceRegex = /(?:file|src|url|link)\s*[:=]\s*["']([^"']+)["']/gi;
+    while ((match = sourceRegex.exec(text)) !== null) {
+      addLink(match[1], "Player");
+    }
+  }
+  return links;
+}
+function normalizeHostLabel(rawUrl) {
+  try {
+    const host = new URL(String(rawUrl || "")).hostname.replace(/^www\./i, "").toLowerCase();
+    if (!host) return "";
+    const first = host.split(".")[0] || host;
+    return first.charAt(0).toUpperCase() + first.slice(1);
+  } catch (e) {
+    return "";
+  }
+}
+function resolveWatchUrlsForEpisodeEntry(source, episodeEntry) {
+  return __async(this, null, function* () {
+    const urls = [];
+    if (episodeEntry == null ? void 0 : episodeEntry.watchUrl) {
+      urls.push(...extractWatchUrlsFromHtml(episodeEntry.watchUrl));
+    }
+    if (urls.length === 0 && (episodeEntry == null ? void 0 : episodeEntry.episodePath)) {
+      const episodeUrl = buildSaturnUrl(episodeEntry.episodePath);
+      if (episodeUrl) {
+        try {
+          const html = yield fetchResource(episodeUrl, {
+            ttlMs: TTL.watch,
+            cacheKey: `episode-page:${episodeEntry.episodePath}`,
+            timeoutMs: FETCH_TIMEOUT
+          });
+          urls.push(...extractWatchUrlsFromHtml(html));
+        } catch (error) {
+          console.error("[AnimeSaturn] episode page request failed:", error.message);
+        }
+      }
+    }
+    if (urls.length === 0 && (source == null ? void 0 : source.animePath)) {
+      const animeUrl = buildSaturnUrl(source.animePath);
+      if (animeUrl) {
+        try {
+          const html = yield fetchResource(animeUrl, {
+            ttlMs: TTL.watch,
+            cacheKey: `anime-watch-fallback:${source.animePath}`,
+            timeoutMs: FETCH_TIMEOUT
+          });
+          urls.push(...extractWatchUrlsFromHtml(html));
+        } catch (error) {
+          console.error("[AnimeSaturn] anime watch fallback failed:", error.message);
+        }
+      }
+    }
+    return uniqueStrings(urls.map((url) => toAbsoluteUrl(url))).filter(Boolean);
   });
 }
-function fetchEpisodeInfo(episodeRef, refererUrl, pageContext = null) {
+function mapLimit(values, limit, mapper) {
   return __async(this, null, function* () {
-    const token = String(episodeRef || "").trim();
-    if (!token) return null;
-    const url = `${getWorldBaseUrl()}/api/episode/info?id=${encodeURIComponent(token)}`;
-    const csrfToken = String((pageContext == null ? void 0 : pageContext.csrfToken) || "").trim();
-    const sessionCookie = String((pageContext == null ? void 0 : pageContext.sessionCookie) || "").trim();
-    const extraHeaders = {};
-    if (csrfToken) extraHeaders["csrf-token"] = csrfToken;
-    if (sessionCookie) extraHeaders.cookie = sessionCookie;
-    try {
-      return yield fetchResource(url, {
-        as: "json",
-        ttlMs: TTL.info,
-        cacheKey: `episode-info:${token}:${csrfToken ? "csrf" : "nocsrf"}:${sessionCookie ? "cookie" : "nocookie"}`,
-        timeoutMs: FETCH_TIMEOUT,
-        headers: __spreadValues({
-          referer: refererUrl,
-          "x-requested-with": "XMLHttpRequest"
-        }, extraHeaders)
+    if (!Array.isArray(values) || values.length === 0) return [];
+    const concurrency = Math.max(1, Math.min(limit, values.length));
+    const output = new Array(values.length);
+    let cursor = 0;
+    function worker() {
+      return __async(this, null, function* () {
+        while (cursor < values.length) {
+          const current = cursor;
+          cursor += 1;
+          try {
+            output[current] = yield mapper(values[current], current);
+          } catch (error) {
+            output[current] = [];
+            console.error("[AnimeSaturn] task failed:", error.message);
+          }
+        }
       });
-    } catch (error) {
-      console.error("[AnimeWorld] episode info request failed:", error.message);
-      return null;
     }
+    yield Promise.all(Array.from({ length: concurrency }, () => worker()));
+    return output;
   });
 }
 function extractStreamsFromAnimePath(animePath, requestedEpisode, mediaType = "tv") {
   return __async(this, null, function* () {
-    const normalizedPath = normalizeAnimeWorldPath(animePath);
+    const normalizedPath = normalizeAnimeSaturnPath(animePath);
     if (!normalizedPath) return [];
-    const animeUrl = buildWorldUrl(normalizedPath);
+    const animeUrl = buildSaturnUrl(normalizedPath);
     if (!animeUrl) return [];
     let parsedPage;
-    let pageContext;
     try {
-      pageContext = yield fetchAnimePageContext(animeUrl, `animeworld:${normalizedPath}`);
-      parsedPage = parseAnimeWorldPage(pageContext.html, { animePath: normalizedPath });
+      const html = yield fetchResource(animeUrl, {
+        ttlMs: TTL.page,
+        cacheKey: `anime:${normalizedPath}`,
+        timeoutMs: FETCH_TIMEOUT
+      });
+      parsedPage = parseAnimeSaturnPage(html, { animePath: normalizedPath });
     } catch (error) {
-      console.error("[AnimeWorld] anime page request failed:", error.message);
+      console.error("[AnimeSaturn] anime page request failed:", error.message);
       return [];
     }
     const normalizedEpisode = normalizeRequestedEpisode(requestedEpisode);
-    const selectedEpisode = pickEpisodeEntry(parsedPage.episodes, normalizedEpisode, mediaType);
-    if (!selectedEpisode) return [];
-    const infoRef = selectedEpisode.episodeToken || selectedEpisode.episodeId;
-    const infoData = yield fetchEpisodeInfo(infoRef, animeUrl, pageContext);
-    if (!infoData || typeof infoData !== "object") return [];
-    const grabbers = collectGrabberCandidates(infoData);
-    if (grabbers.length === 0) return [];
+    let episodes = normalizeEpisodesList(parsedPage.episodes);
+    let selected = pickEpisodeEntry(episodes, normalizedEpisode, mediaType);
+    if ((!selected || episodes.length === 0) && Array.isArray(parsedPage.relatedAnimePaths) && parsedPage.relatedAnimePaths.length > 0) {
+      for (const related of parsedPage.relatedAnimePaths.slice(0, 2)) {
+        try {
+          const relatedUrl = buildSaturnUrl(related);
+          if (!relatedUrl) continue;
+          const html = yield fetchResource(relatedUrl, {
+            ttlMs: TTL.page,
+            cacheKey: `anime-related:${related}`,
+            timeoutMs: FETCH_TIMEOUT
+          });
+          const relatedParsed = parseAnimeSaturnPage(html, { animePath: related, title: parsedPage.title });
+          episodes = mergeEpisodeLists(episodes, relatedParsed.episodes);
+        } catch (e) {
+        }
+      }
+      selected = pickEpisodeEntry(episodes, normalizedEpisode, mediaType);
+    }
+    if (!selected) return [];
     const baseTitle = sanitizeAnimeTitle(parsedPage.title) || "Unknown Title";
-    const episodeLabel = getEpisodeDisplayLabel(selectedEpisode, normalizedEpisode);
-    const displayTitle = episodeLabel ? `${baseTitle} - Ep ${episodeLabel}` : baseTitle;
+    const resolvedEpisode = parsePositiveInt(selected.num) || normalizedEpisode;
+    const displayTitle = mediaType === "movie" ? baseTitle : `${baseTitle} - Ep ${resolvedEpisode}`;
     const streamLanguage = resolveLanguageEmoji(parsedPage.sourceTag);
+    const initialWatchUrls = yield resolveWatchUrlsForEpisodeEntry(
+      {
+        animePath: normalizedPath,
+        title: parsedPage.title,
+        sourceTag: parsedPage.sourceTag,
+        episodes
+      },
+      selected
+    );
+    if (initialWatchUrls.length === 0) return [];
+    const queue = [...initialWatchUrls];
+    const visitedWatchUrls = /* @__PURE__ */ new Set();
     const streams = [];
-    const seen = /* @__PURE__ */ new Set();
-    for (const candidate of grabbers) {
-      const mediaUrl = normalizePlayableMediaUrl(candidate);
-      if (!mediaUrl) continue;
-      const lowerLink = mediaUrl.toLowerCase();
-      if (lowerLink.endsWith(".mkv.mp4") || BLOCKED_DOMAINS.some((domain) => lowerLink.includes(domain))) {
+    const seenMedia = /* @__PURE__ */ new Set();
+    const expectedFileId = (() => {
+      try {
+        const parsed = new URL(initialWatchUrls[0]);
+        return parsed.searchParams.get("file");
+      } catch (e) {
+        return null;
+      }
+    })();
+    let processed = 0;
+    while (queue.length > 0 && processed < 6) {
+      const watchUrl = queue.shift();
+      if (!watchUrl || visitedWatchUrls.has(watchUrl)) continue;
+      visitedWatchUrls.add(watchUrl);
+      processed += 1;
+      let html = "";
+      try {
+        html = yield fetchResource(watchUrl, {
+          ttlMs: TTL.watch,
+          cacheKey: `watch:${watchUrl}`,
+          timeoutMs: FETCH_TIMEOUT
+        });
+      } catch (error) {
+        console.error("[AnimeSaturn] watch page request failed:", error.message);
         continue;
       }
-      if (seen.has(mediaUrl)) continue;
-      seen.add(mediaUrl);
-      let quality = extractQualityHint(mediaUrl);
-      if (lowerLink.includes(".m3u8")) {
-        const detected = yield checkQualityFromPlaylist(mediaUrl, {
-          "User-Agent": USER_AGENT,
-          Referer: animeUrl
-        });
-        if (detected) quality = detected;
-      }
-      const hostLabel = normalizeHostLabel(mediaUrl);
-      const serverName = hostLabel ? `AnimeWorld - ${hostLabel}` : "AnimeWorld";
-      streams.push({
-        name: serverName,
-        title: displayTitle,
-        server: serverName,
-        url: mediaUrl,
-        language: streamLanguage,
-        quality,
-        headers: {
-          "User-Agent": USER_AGENT,
-          Referer: animeUrl
+      const links = collectMediaLinksFromWatchHtml(html);
+      for (const link of links) {
+        const mediaUrl = normalizePlayableMediaUrl(link.href);
+        if (!mediaUrl || seenMedia.has(mediaUrl)) continue;
+        const lowerLink = mediaUrl.toLowerCase();
+        if (lowerLink.endsWith(".mkv.mp4") || BLOCKED_DOMAINS.some((domain) => lowerLink.includes(domain))) {
+          continue;
         }
-      });
-    }
-    if (streams.length === 0) {
-      const targetUrl = toAbsoluteUrl(infoData.target || null, getWorldBaseUrl());
-      if (targetUrl) {
-        const extraHeaders = {};
-        const csrfToken = String((pageContext == null ? void 0 : pageContext.csrfToken) || "").trim();
-        const sessionCookie = String((pageContext == null ? void 0 : pageContext.sessionCookie) || "").trim();
-        if (csrfToken) extraHeaders["csrf-token"] = csrfToken;
-        if (sessionCookie) extraHeaders.cookie = sessionCookie;
-        try {
-          const targetHtml = yield fetchResource(targetUrl, {
-            ttlMs: TTL.info,
-            cacheKey: `server-target:${targetUrl}:${csrfToken ? "csrf" : "nocsrf"}:${sessionCookie ? "cookie" : "nocookie"}`,
-            timeoutMs: FETCH_TIMEOUT,
-            headers: __spreadValues({
-              referer: animeUrl,
-              "x-requested-with": "XMLHttpRequest"
-            }, extraHeaders)
+        seenMedia.add(mediaUrl);
+        let quality = extractQualityHint(mediaUrl);
+        if (lowerLink.includes(".m3u8")) {
+          const detected = yield checkQualityFromPlaylist(mediaUrl, {
+            "User-Agent": USER_AGENT,
+            Referer: watchUrl
           });
-          const targetLinks = collectMediaLinksFromHtml(targetHtml);
-          for (const mediaUrl of targetLinks) {
-            if (seen.has(mediaUrl)) continue;
-            const lowerLink = mediaUrl.toLowerCase();
-            if (lowerLink.endsWith(".mkv.mp4") || BLOCKED_DOMAINS.some((domain) => lowerLink.includes(domain))) {
-              continue;
-            }
-            seen.add(mediaUrl);
-            let quality = extractQualityHint(mediaUrl);
-            if (lowerLink.includes(".m3u8")) {
-              const detected = yield checkQualityFromPlaylist(mediaUrl, {
-                "User-Agent": USER_AGENT,
-                Referer: animeUrl
-              });
-              if (detected) quality = detected;
-            }
-            const hostLabel = normalizeHostLabel(mediaUrl);
-            const serverName = hostLabel ? `AnimeWorld - ${hostLabel}` : "AnimeWorld";
-            streams.push({
-              name: serverName,
-              title: displayTitle,
-              server: serverName,
-              url: mediaUrl,
-              language: streamLanguage,
-              quality,
-              headers: {
-                "User-Agent": USER_AGENT,
-                Referer: animeUrl
-              }
-            });
-          }
-        } catch (error) {
-          console.error("[AnimeWorld] target player request failed:", error.message);
+          if (detected) quality = detected;
         }
+        const hostLabel = normalizeHostLabel(mediaUrl);
+        const serverName = hostLabel ? `AnimeSaturn - ${hostLabel}` : "AnimeSaturn";
+        streams.push({
+          name: serverName,
+          server: serverName,
+          title: displayTitle,
+          url: mediaUrl,
+          language: streamLanguage,
+          quality,
+          headers: {
+            "User-Agent": USER_AGENT,
+            Referer: watchUrl
+          }
+        });
+      }
+      const extraWatchUrls = extractWatchUrlsFromHtml(html, expectedFileId);
+      for (const extra of extraWatchUrls) {
+        if (!visitedWatchUrls.has(extra)) queue.push(extra);
       }
     }
     return streams;
@@ -1127,20 +1159,20 @@ function fetchMappingPayload(lookup) {
       setCached(caches.mapping, cacheKey, payload, TTL.mapping);
       return payload;
     } catch (error) {
-      console.error("[AnimeWorld] mapping request failed:", error.message);
+      console.error("[AnimeSaturn] mapping request failed:", error.message);
       return null;
     }
   });
 }
-function extractAnimeWorldPaths(mappingPayload) {
+function extractAnimeSaturnPaths(mappingPayload) {
   var _a;
   if (!mappingPayload || typeof mappingPayload !== "object") return [];
-  const raw = (_a = mappingPayload == null ? void 0 : mappingPayload.mappings) == null ? void 0 : _a.animeworld;
+  const raw = (_a = mappingPayload == null ? void 0 : mappingPayload.mappings) == null ? void 0 : _a.animesaturn;
   const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
   const paths = [];
   for (const item of list) {
     const candidate = typeof item === "string" ? item : item && typeof item === "object" ? item.path || item.url || item.href || item.playPath : null;
-    const normalized = normalizeAnimeWorldPath(candidate);
+    const normalized = normalizeAnimeSaturnPath(candidate);
     if (normalized) paths.push(normalized);
   }
   return uniqueStrings(paths);
@@ -1152,36 +1184,16 @@ function extractTmdbIdFromMappingPayload(mappingPayload) {
   return /^\d+$/.test(text) ? text : null;
 }
 function resolveEpisodeFromMappingPayload(mappingPayload, fallbackEpisode) {
-  var _a, _b;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
   const fromKitsu = parsePositiveInt((_a = mappingPayload == null ? void 0 : mappingPayload.kitsu) == null ? void 0 : _a.episode);
   if (fromKitsu) return fromKitsu;
   const fromRequested = parsePositiveInt((_b = mappingPayload == null ? void 0 : mappingPayload.requested) == null ? void 0 : _b.episode);
   if (fromRequested) return fromRequested;
+  const fromTmdbRaw = parsePositiveInt(
+    ((_d = (_c = mappingPayload == null ? void 0 : mappingPayload.mappings) == null ? void 0 : _c.tmdb_episode) == null ? void 0 : _d.rawEpisodeNumber) || ((_f = (_e = mappingPayload == null ? void 0 : mappingPayload.mappings) == null ? void 0 : _e.tmdb_episode) == null ? void 0 : _f.raw_episode_number) || ((_h = (_g = mappingPayload == null ? void 0 : mappingPayload.mappings) == null ? void 0 : _g.tmdbEpisode) == null ? void 0 : _h.rawEpisodeNumber) || ((_i = mappingPayload == null ? void 0 : mappingPayload.tmdb_episode) == null ? void 0 : _i.rawEpisodeNumber) || ((_j = mappingPayload == null ? void 0 : mappingPayload.tmdbEpisode) == null ? void 0 : _j.rawEpisodeNumber)
+  );
+  if (fromTmdbRaw) return fromTmdbRaw;
   return normalizeRequestedEpisode(fallbackEpisode);
-}
-function mapLimit(values, limit, mapper) {
-  return __async(this, null, function* () {
-    if (!Array.isArray(values) || values.length === 0) return [];
-    const concurrency = Math.max(1, Math.min(limit, values.length));
-    const output = new Array(values.length);
-    let cursor = 0;
-    function worker() {
-      return __async(this, null, function* () {
-        while (cursor < values.length) {
-          const current = cursor;
-          cursor += 1;
-          try {
-            output[current] = yield mapper(values[current], current);
-          } catch (error) {
-            output[current] = [];
-            console.error("[AnimeWorld] task failed:", error.message);
-          }
-        }
-      });
-    }
-    yield Promise.all(Array.from({ length: concurrency }, () => worker()));
-    return output;
-  });
 }
 function getStreams(id, type, season, episode, providerContext = null) {
   return __async(this, null, function* () {
@@ -1189,7 +1201,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       const lookup = resolveLookupRequest(id, season, episode, providerContext);
       if (!lookup) return [];
       let mappingPayload = yield fetchMappingPayload(lookup);
-      let animePaths = extractAnimeWorldPaths(mappingPayload);
+      let animePaths = extractAnimeSaturnPaths(mappingPayload);
       if (animePaths.length === 0 && String(lookup.provider || "").toLowerCase() === "imdb") {
         const tmdbFromContext = /^\d+$/.test(String((providerContext == null ? void 0 : providerContext.tmdbId) || "").trim()) ? String(providerContext.tmdbId).trim() : null;
         const tmdbFromPayload = extractTmdbIdFromMappingPayload(mappingPayload);
@@ -1202,7 +1214,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
             episode: lookup.episode
           };
           const tmdbPayload = yield fetchMappingPayload(tmdbLookup);
-          const tmdbPaths = extractAnimeWorldPaths(tmdbPayload);
+          const tmdbPaths = extractAnimeSaturnPaths(tmdbPayload);
           if (tmdbPaths.length > 0) {
             mappingPayload = tmdbPayload;
             animePaths = tmdbPaths;
@@ -1227,9 +1239,9 @@ function getStreams(id, type, season, episode, providerContext = null) {
         seen.add(normalizedUrl);
         deduped.push(__spreadProps(__spreadValues({}, stream), { url: normalizedUrl }));
       }
-      return deduped.map((stream) => formatStream(stream, "AnimeWorld")).filter(Boolean);
+      return deduped.map((stream) => formatStream(stream, "AnimeSaturn")).filter(Boolean);
     } catch (error) {
-      console.error("[AnimeWorld] getStreams failed:", error.message);
+      console.error("[AnimeSaturn] getStreams failed:", error.message);
       return [];
     }
   });

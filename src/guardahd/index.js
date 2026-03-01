@@ -18,13 +18,18 @@ var __async = (__this, __arguments, generator) => {
     step((generator = generator.apply(__this, __arguments)).next());
   });
 };
-const BASE_URL = "https://guardahd.stream";
+const { getProviderUrl } = require("../provider_urls.js");
+function getGuardaHdBaseUrl() {
+  return getProviderUrl(
+    "guardahd",
+    ["GUARDAHD_BASE_URL", "GH_BASE_URL"]
+  );
+}
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
 
 const { extractMixDrop, extractDropLoad, extractSuperVideo } = require('../extractors');
 require('../fetch_helper.js');
-const { getTmdbFromKitsu } = require('../tmdb_helper.js');
 const { formatStream } = require('../formatter.js');
 const { checkQualityFromPlaylist, getQualityFromUrl } = require('../quality_helper.js');
 
@@ -95,17 +100,6 @@ function getMetadata(id, type) {
       const normalizedType = String(type).toLowerCase();
       let queryId = id;
 
-      if (String(id).startsWith("kitsu:")) {
-          const resolved = yield getTmdbFromKitsu(id);
-          if (resolved && resolved.tmdbId) {
-             queryId = resolved.tmdbId;
-             console.log(`[GuardaHD] Resolved Kitsu ID ${id} to ID ${queryId}`);
-          } else {
-             console.log(`[GuardaHD] Could not convert ${id} to usable ID`);
-             return null;
-          }
-      }
-
       let url;
       if (String(queryId).startsWith("tt")) {
           url = `https://api.themoviedb.org/3/find/${queryId}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=it-IT`;
@@ -135,22 +129,7 @@ function getStreams(id, type, season, episode) {
   if (['series', 'tv'].includes(String(type).toLowerCase())) return [];
   return __async(this, null, function* () {
     let cleanId = id.toString();
-    
-    if (cleanId.startsWith("kitsu:")) {
-        const resolved = yield getTmdbFromKitsu(cleanId);
-        if (resolved && resolved.tmdbId) {
-            console.log(`[GuardaHD] Resolved Kitsu ID ${cleanId} to ID ${resolved.tmdbId}`);
-            cleanId = String(resolved.tmdbId);
-            if (resolved.season) {
-                console.log(`[GuardaHD] Kitsu mapping indicates Season ${resolved.season}. Overriding requested Season ${season}`);
-                season = resolved.season;
-            }
-        } else {
-            console.log(`[GuardaHD] Could not convert ${cleanId} to usable ID`);
-            return [];
-        }
-    }
-    
+
     if (cleanId.startsWith("tmdb:")) cleanId = cleanId.replace("tmdb:", "");
     let imdbId = cleanId;
     if (!cleanId.startsWith("tt")) {
@@ -172,10 +151,11 @@ function getStreams(id, type, season, episode) {
     
     let url;
     const normalizedType = String(type).toLowerCase();
+    const baseUrl = getGuardaHdBaseUrl();
     if (normalizedType === "movie") {
-      url = `${BASE_URL}/set-movie-a/${imdbId}`;
+      url = `${baseUrl}/set-movie-a/${imdbId}`;
     } else if (normalizedType === "tv") {
-      url = `${BASE_URL}/set-tv-a/${imdbId}/${season}/${episode}`;
+      url = `${baseUrl}/set-tv-a/${imdbId}/${season}/${episode}`;
     } else {
       return [];
     }
@@ -183,7 +163,7 @@ function getStreams(id, type, season, episode) {
       const response = yield fetch(url, {
         headers: {
           "User-Agent": USER_AGENT,
-          "Referer": BASE_URL
+          "Referer": baseUrl
         }
       });
       if (!response.ok) return [];

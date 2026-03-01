@@ -42,25 +42,198 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
+// src/provider_urls.js
+var require_provider_urls = __commonJS({
+  "src/provider_urls.js"(exports2, module2) {
+    "use strict";
+    var fs = require("fs");
+    var path = require("path");
+    var PROVIDER_URLS_FILE = process.env.PROVIDER_URLS_FILE ? path.resolve(process.env.PROVIDER_URLS_FILE) : path.resolve(__dirname, "..", "provider_urls.json");
+    var RELOAD_INTERVAL_MS = Number.parseInt(process.env.PROVIDER_URLS_RELOAD_MS || "1500", 10) || 1500;
+    var DEFAULT_PROVIDER_URLS_URL = "https://raw.githubusercontent.com/realbestia1/easystreams/refs/heads/main/provider_urls.json";
+    var PROVIDER_URLS_URL = String(process.env.PROVIDER_URLS_URL || DEFAULT_PROVIDER_URLS_URL).trim();
+    var REMOTE_RELOAD_INTERVAL_MS = Number.parseInt(process.env.PROVIDER_URLS_REMOTE_RELOAD_MS || "10000", 10) || 1e4;
+    var REMOTE_FETCH_TIMEOUT_MS = Number.parseInt(process.env.PROVIDER_URLS_REMOTE_TIMEOUT_MS || "5000", 10) || 5e3;
+    var ALIASES = {
+      animeunity: ["animeunuty", "anime_unity"],
+      animeworld: ["anime_world"],
+      animesaturn: ["anime_saturn"],
+      streamingcommunity: ["streaming_community"],
+      guardahd: ["guarda_hd"],
+      guardaserie: ["guarda_serie"],
+      guardoserie: ["guardo_serie"],
+      mapping_api: ["mappingapi", "mapping_api_url", "mapping_url"]
+    };
+    var lastCheckAt = 0;
+    var lastMtimeMs = -1;
+    var lastData = {};
+    var lastRemoteCheckAt = 0;
+    var remoteInFlight = null;
+    function normalizeKey(key) {
+      return String(key || "").trim().toLowerCase();
+    }
+    function normalizeUrl(value) {
+      const text = String(value || "").trim();
+      if (!text) return "";
+      return text.replace(/\/+$/, "");
+    }
+    function toNormalizedMap(raw) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+      const out = {};
+      for (const [key, value] of Object.entries(raw)) {
+        const normalizedKey = normalizeKey(key);
+        const normalizedValue = normalizeUrl(value);
+        if (!normalizedKey || !normalizedValue) continue;
+        out[normalizedKey] = normalizedValue;
+      }
+      return out;
+    }
+    function reloadProviderUrlsIfNeeded(force = false) {
+      const now = Date.now();
+      if (!force && now - lastCheckAt < RELOAD_INTERVAL_MS) return;
+      lastCheckAt = now;
+      let stat;
+      try {
+        stat = fs.statSync(PROVIDER_URLS_FILE);
+      } catch (e) {
+        if (lastMtimeMs !== -1) {
+          lastMtimeMs = -1;
+          lastData = {};
+        }
+        return;
+      }
+      if (!force && stat.mtimeMs === lastMtimeMs) return;
+      try {
+        const raw = fs.readFileSync(PROVIDER_URLS_FILE, "utf8");
+        const parsed = JSON.parse(raw);
+        lastData = toNormalizedMap(parsed);
+        lastMtimeMs = stat.mtimeMs;
+      } catch (e) {
+        lastData = {};
+        lastMtimeMs = stat.mtimeMs;
+      }
+    }
+    function getFetchImpl() {
+      if (typeof fetch === "function") return fetch.bind(globalThis);
+      try {
+        return require("node-fetch");
+      } catch (e) {
+        return null;
+      }
+    }
+    function refreshProviderUrlsFromRemoteIfNeeded(force = false) {
+      return __async(this, null, function* () {
+        if (!PROVIDER_URLS_URL) return;
+        if (remoteInFlight) return;
+        const now = Date.now();
+        if (!force && now - lastRemoteCheckAt < REMOTE_RELOAD_INTERVAL_MS) return;
+        lastRemoteCheckAt = now;
+        const fetchImpl = getFetchImpl();
+        if (!fetchImpl) return;
+        remoteInFlight = (() => __async(null, null, function* () {
+          let timeoutId = null;
+          let signal;
+          if (typeof AbortController !== "undefined") {
+            const controller = new AbortController();
+            signal = controller.signal;
+            timeoutId = setTimeout(() => controller.abort(), REMOTE_FETCH_TIMEOUT_MS);
+          }
+          try {
+            const response = yield fetchImpl(PROVIDER_URLS_URL, {
+              signal,
+              headers: {
+                "accept": "application/json"
+              }
+            });
+            if (!response || !response.ok) return;
+            const payload = yield response.json();
+            const parsed = toNormalizedMap(payload);
+            if (Object.keys(parsed).length > 0) {
+              lastData = parsed;
+            }
+          } catch (e) {
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+            remoteInFlight = null;
+          }
+        }))();
+      });
+    }
+    function findFromJson(providerKey) {
+      reloadProviderUrlsIfNeeded(false);
+      refreshProviderUrlsFromRemoteIfNeeded(false);
+      const key = normalizeKey(providerKey);
+      const candidates = [key, ...ALIASES[key] || []].map(normalizeKey);
+      for (const candidate of candidates) {
+        const value = normalizeUrl(lastData[candidate]);
+        if (value) return value;
+      }
+      return "";
+    }
+    function findFromEnv(envKeys = []) {
+      for (const envKey of envKeys) {
+        const value = normalizeUrl(process.env[envKey]);
+        if (value) return value;
+      }
+      return "";
+    }
+    function getProviderUrl2(providerKey, envKeys = []) {
+      const safeEnvKeys = Array.isArray(envKeys) ? envKeys : [];
+      const fromJson = findFromJson(providerKey);
+      if (fromJson) return fromJson;
+      const fromEnv = findFromEnv(safeEnvKeys);
+      if (fromEnv) return fromEnv;
+      return "";
+    }
+    function getProviderUrlsFilePath() {
+      return PROVIDER_URLS_FILE;
+    }
+    function getProviderUrlsSourceUrl() {
+      return PROVIDER_URLS_URL;
+    }
+    module2.exports = {
+      getProviderUrl: getProviderUrl2,
+      reloadProviderUrlsIfNeeded,
+      getProviderUrlsFilePath,
+      getProviderUrlsSourceUrl
+    };
+  }
+});
+
 // src/formatter.js
 var require_formatter = __commonJS({
   "src/formatter.js"(exports2, module2) {
-    function isHttpsMp4Url(rawUrl) {
+    function isMp4Url(rawUrl, depth = 0) {
       const url = String(rawUrl || "").trim();
       if (!url) return false;
+      const directMatch = (value) => /\.mp4(?:[?#].*)?$/i.test(String(value || "").trim());
+      if (directMatch(url)) return true;
+      if (depth >= 1) return false;
       try {
         const parsed = new URL(url);
-        if (parsed.protocol !== "https:") return false;
-        return parsed.pathname.toLowerCase().endsWith(".mp4");
+        if (String(parsed.pathname || "").toLowerCase().endsWith(".mp4")) return true;
+        const nestedKeys = ["url", "src", "file", "link", "stream"];
+        for (const key of nestedKeys) {
+          const nested = parsed.searchParams.get(key);
+          if (!nested) continue;
+          let decoded = nested;
+          try {
+            decoded = decodeURIComponent(nested);
+          } catch (_) {
+            decoded = nested;
+          }
+          if (isMp4Url(decoded, depth + 1)) return true;
+        }
+        return false;
       } catch (e) {
-        return /^https:\/\/.+\.mp4(?:[?#].*)?$/i.test(url);
+        return directMatch(url);
       }
     }
     function shouldSetNotWebReady(url, headers, behaviorHints = {}) {
       const proxyHeaders = behaviorHints.proxyHeaders && behaviorHints.proxyHeaders.request;
       if (proxyHeaders && Object.keys(proxyHeaders).length > 0) return true;
       if (headers && Object.keys(headers).length > 0) return true;
-      return !isHttpsMp4Url(url);
+      return !isMp4Url(url);
     }
     function formatStream2(stream, providerName) {
       let quality = stream.quality || "";
@@ -69,7 +242,7 @@ var require_formatter = __commonJS({
       else if (quality === "1080p") quality = "\u{1F680} FHD";
       else if (quality === "720p") quality = "\u{1F4BF} HD";
       else if (quality === "576p" || quality === "480p" || quality === "360p" || quality === "240p") quality = "\u{1F4A9} Low Quality";
-      else if (!quality || quality.toLowerCase() === "auto") quality = "Unknown";
+      else if (!quality || ["auto", "unknown", "unknow"].includes(String(quality).toLowerCase())) quality = "Unknow";
       let title = `\u{1F4C1} ${stream.title || "Stream"}`;
       let language = stream.language;
       if (!language) {
@@ -215,23 +388,31 @@ var require_quality_helper = __commonJS({
 });
 
 // src/streamingcommunity/index.js
-var BASE_URL = "https://vixsrc.to";
+var { getProviderUrl } = require_provider_urls();
+function getStreamingCommunityBaseUrl() {
+  return getProviderUrl(
+    "streamingcommunity",
+    ["STREAMINGCOMMUNITY_BASE_URL", "SC_BASE_URL"]
+  );
+}
 var { formatStream } = require_formatter();
 require_fetch_helper();
 var { checkQualityFromText } = require_quality_helper();
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
-var COMMON_HEADERS = {
-  "User-Agent": USER_AGENT,
-  "Referer": "https://vixsrc.to/",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-  "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-  "Sec-Fetch-Dest": "document",
-  "Sec-Fetch-Mode": "navigate",
-  "Sec-Fetch-Site": "none",
-  "Sec-Fetch-User": "?1",
-  "Upgrade-Insecure-Requests": "1"
-};
+function getCommonHeaders() {
+  return {
+    "User-Agent": USER_AGENT,
+    "Referer": `${getStreamingCommunityBaseUrl()}/`,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1"
+  };
+}
 function getQualityFromName(qualityStr) {
   if (!qualityStr) return "Unknown";
   const quality = qualityStr.toUpperCase();
@@ -307,17 +488,13 @@ function getMetadata(id, type) {
 function getStreams(id, type, season, episode, providerContext = null) {
   return __async(this, null, function* () {
     const normalizedType = String(type).toLowerCase();
+    const baseUrl = getStreamingCommunityBaseUrl();
+    const commonHeaders = getCommonHeaders();
     let tmdbId = id.toString();
     let resolvedSeason = season;
     const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
-    const parsedContextSeason = parseInt(providerContext && providerContext.canonicalSeason, 10);
-    const hasContextSeason = Number.isInteger(parsedContextSeason) && parsedContextSeason >= 0;
     if (contextTmdbId) {
       tmdbId = contextTmdbId;
-      if (normalizedType === "tv" && hasContextSeason && resolvedSeason !== parsedContextSeason) {
-        console.log(`[StreamingCommunity] Prefetched mapping indicates Season ${parsedContextSeason}. Overriding requested Season ${resolvedSeason}`);
-        resolvedSeason = parsedContextSeason;
-      }
     } else if (tmdbId.startsWith("tmdb:")) {
       tmdbId = tmdbId.replace("tmdb:", "");
     } else if (tmdbId.startsWith("tt")) {
@@ -340,16 +517,16 @@ function getStreams(id, type, season, episode, providerContext = null) {
     const finalDisplayName = displayName;
     let url;
     if (normalizedType === "movie") {
-      url = `${BASE_URL}/movie/${tmdbId}`;
+      url = `${baseUrl}/movie/${tmdbId}`;
     } else if (normalizedType === "tv") {
-      url = `${BASE_URL}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
+      url = `${baseUrl}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
     } else {
       return [];
     }
     try {
       console.log(`[StreamingCommunity] Fetching page: ${url}`);
       const response = yield fetch(url, {
-        headers: COMMON_HEADERS
+        headers: commonHeaders
       });
       if (!response.ok) {
         console.error(`[StreamingCommunity] Failed to fetch page: ${response.status}`);
@@ -363,18 +540,18 @@ function getStreams(id, type, season, episode, providerContext = null) {
       if (tokenMatch && expiresMatch && urlMatch) {
         const token = tokenMatch[1];
         const expires = expiresMatch[1];
-        const baseUrl = urlMatch[1];
+        const baseUrl2 = urlMatch[1];
         let streamUrl;
-        if (baseUrl.includes("?b=1")) {
-          streamUrl = baseUrl.replace("?", ".m3u8?") + `&token=${token}&expires=${expires}&h=1&lang=it`;
+        if (baseUrl2.includes("?b=1")) {
+          streamUrl = baseUrl2.replace("?", ".m3u8?") + `&token=${token}&expires=${expires}&h=1&lang=it`;
         } else {
-          streamUrl = `${baseUrl}.m3u8?token=${token}&expires=${expires}&h=1&lang=it`;
+          streamUrl = `${baseUrl2}.m3u8?token=${token}&expires=${expires}&h=1&lang=it`;
         }
         console.log(`[StreamingCommunity] Found stream URL: ${streamUrl}`);
         let quality = "720p";
         try {
           const playlistResponse = yield fetch(streamUrl, {
-            headers: COMMON_HEADERS
+            headers: commonHeaders
           });
           if (playlistResponse.ok) {
             const playlistText = yield playlistResponse.text();
@@ -401,7 +578,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
           url: streamUrl,
           quality: normalizedQuality,
           type: "direct",
-          headers: COMMON_HEADERS
+          headers: commonHeaders
         };
         return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
       } else {

@@ -6,7 +6,7 @@ async function extractVixCloud(url) {
         const response = await fetch(url, {
             headers: {
                 "User-Agent": USER_AGENT,
-                "Referer": "https://www.animeunity.so/"
+                "Referer": "https://vixcloud.co/"
             }
         });
 
