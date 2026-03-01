@@ -1,16 +1,51 @@
 "use strict";
 
-const fs = require("fs");
-const path = require("path");
+function safeRequire(moduleName) {
+  try {
+    // eslint-disable-next-line global-require
+    return require(moduleName);
+  } catch {
+    return null;
+  }
+}
 
-const PROVIDER_URLS_FILE = process.env.PROVIDER_URLS_FILE
-  ? path.resolve(process.env.PROVIDER_URLS_FILE)
-  : path.resolve(__dirname, "..", "provider_urls.json");
-const RELOAD_INTERVAL_MS = Number.parseInt(process.env.PROVIDER_URLS_RELOAD_MS || "1500", 10) || 1500;
+const fs = safeRequire("fs");
+const path = safeRequire("path");
+
+let embeddedProviderUrls = {};
+try {
+  // Bootstrap defaults from JSON (bundled in provider builds, RN-safe).
+  // eslint-disable-next-line global-require
+  embeddedProviderUrls = require("../provider_urls.json");
+} catch {
+  embeddedProviderUrls = {};
+}
+
+const env =
+  typeof process !== "undefined" &&
+  process &&
+  typeof process.env === "object" &&
+  process.env
+    ? process.env
+    : {};
+
+const configuredProviderUrlsFile = String(env.PROVIDER_URLS_FILE || "").trim();
+const defaultProviderUrlsFile =
+  path && typeof __dirname !== "undefined"
+    ? path.resolve(__dirname, "..", "provider_urls.json")
+    : "";
+
+const PROVIDER_URLS_FILE = configuredProviderUrlsFile
+  ? path
+    ? path.resolve(configuredProviderUrlsFile)
+    : configuredProviderUrlsFile
+  : defaultProviderUrlsFile;
+
+const RELOAD_INTERVAL_MS = Number.parseInt(String(env.PROVIDER_URLS_RELOAD_MS || "1500"), 10) || 1500;
 const DEFAULT_PROVIDER_URLS_URL = "https://raw.githubusercontent.com/realbestia1/easystreams/refs/heads/main/provider_urls.json";
-const PROVIDER_URLS_URL = String(process.env.PROVIDER_URLS_URL || DEFAULT_PROVIDER_URLS_URL).trim();
-const REMOTE_RELOAD_INTERVAL_MS = Number.parseInt(process.env.PROVIDER_URLS_REMOTE_RELOAD_MS || "10000", 10) || 10000;
-const REMOTE_FETCH_TIMEOUT_MS = Number.parseInt(process.env.PROVIDER_URLS_REMOTE_TIMEOUT_MS || "5000", 10) || 5000;
+const PROVIDER_URLS_URL = String(env.PROVIDER_URLS_URL || DEFAULT_PROVIDER_URLS_URL).trim();
+const REMOTE_RELOAD_INTERVAL_MS = Number.parseInt(String(env.PROVIDER_URLS_REMOTE_RELOAD_MS || "10000"), 10) || 10000;
+const REMOTE_FETCH_TIMEOUT_MS = Number.parseInt(String(env.PROVIDER_URLS_REMOTE_TIMEOUT_MS || "5000"), 10) || 5000;
 
 const ALIASES = {
   animeunity: ["animeunuty", "anime_unity"],
@@ -52,6 +87,8 @@ function toNormalizedMap(raw) {
 }
 
 function reloadProviderUrlsIfNeeded(force = false) {
+  if (!fs || !PROVIDER_URLS_FILE) return;
+
   const now = Date.now();
   if (!force && now - lastCheckAt < RELOAD_INTERVAL_MS) return;
   lastCheckAt = now;
@@ -82,12 +119,7 @@ function reloadProviderUrlsIfNeeded(force = false) {
 
 function getFetchImpl() {
   if (typeof fetch === "function") return fetch.bind(globalThis);
-  try {
-    // eslint-disable-next-line global-require
-    return require("node-fetch");
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 async function refreshProviderUrlsFromRemoteIfNeeded(force = false) {
@@ -177,3 +209,6 @@ module.exports = {
   getProviderUrlsFilePath,
   getProviderUrlsSourceUrl
 };
+
+// Initialize from embedded JSON immediately.
+lastData = toNormalizedMap(embeddedProviderUrls);
