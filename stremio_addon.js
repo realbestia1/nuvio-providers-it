@@ -1303,7 +1303,14 @@ builder.defineStreamHandler(async ({ type, id }) => {
                     const sName = (s.name || "").toLowerCase();
                     const sTitle = (s.title || "").toLowerCase();
                     // Global filter for specific unwanted servers
-                    return !server.includes('mixdrop') && !sName.includes('mixdrop') && !sTitle.includes('mixdrop');
+                    return (
+                        !server.includes('mixdrop') &&
+                        !sName.includes('mixdrop') &&
+                        !sTitle.includes('mixdrop') &&
+                        !server.includes('uqload') &&
+                        !sName.includes('uqload') &&
+                        !sTitle.includes('uqload')
+                    );
                 })
                 .map((s) => {
                     // For Stremio, we reconstruct the legacy multiline format using metadata
