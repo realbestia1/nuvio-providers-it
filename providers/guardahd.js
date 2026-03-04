@@ -244,50 +244,11 @@ var require_provider_urls2 = __commonJS({
 var require_common = __commonJS({
   "src/extractors/common.js"(exports2, module2) {
     var USER_AGENT2 = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
-    var ENC_CF_WORKER = "";
-    function decodeBase64UrlSafe(value) {
-      const raw = String(value || "").trim();
-      if (!raw) return "";
-      if (/^https?:\/\//i.test(raw)) return raw;
-      const normalized = raw.replace(/-/g, "+").replace(/_/g, "/");
-      const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - normalized.length % 4);
-      const base64 = normalized + padding;
-      try {
-        if (typeof atob === "function") {
-          return atob(base64);
-        }
-      } catch (e) {
-      }
-      try {
-        if (typeof Buffer !== "undefined") {
-          return Buffer.from(base64, "base64").toString("utf8");
-        }
-      } catch (e) {
-      }
-      return "";
-    }
-    function resolveWorkerProxyUrl() {
-      let encoded = "";
-      try {
-        if (typeof global !== "undefined" && typeof global.ENC_CF_WORKER === "string") {
-          encoded = global.ENC_CF_WORKER;
-        } else {
-          encoded = ENC_CF_WORKER;
-        }
-      } catch (e) {
-        encoded = ENC_CF_WORKER;
-      }
-      const decoded = decodeBase64UrlSafe(encoded).trim();
-      if (!/^https?:\/\//i.test(decoded)) return "";
-      return decoded.replace(/\/+$/, "");
-    }
     function getProxiedUrl(url) {
       let proxyUrl = null;
       try {
         if (typeof global !== "undefined" && global.CF_PROXY_URL) {
           proxyUrl = global.CF_PROXY_URL;
-        } else {
-          proxyUrl = resolveWorkerProxyUrl();
         }
       } catch (e) {
       }
@@ -332,8 +293,16 @@ var require_common = __commonJS({
 var require_mixdrop = __commonJS({
   "src/extractors/mixdrop.js"(exports2, module2) {
     var { USER_AGENT: USER_AGENT2, unPack } = require_common();
+    function isMixDropDisabled() {
+      if (typeof global !== "undefined" && global && global.DISABLE_MIXDROP === true) {
+        return true;
+      }
+      const rawEnv = typeof process !== "undefined" && process && process.env && typeof process.env.DISABLE_MIXDROP === "string" ? process.env.DISABLE_MIXDROP.trim().toLowerCase() : "";
+      return ["1", "true", "yes", "on"].includes(rawEnv);
+    }
     function extractMixDrop2(url, refererBase = "https://m1xdrop.net/") {
       return __async(this, null, function* () {
+        if (isMixDropDisabled()) return null;
         try {
           if (url.startsWith("//")) url = "https:" + url;
           const response = yield fetch(url, {
@@ -518,8 +487,16 @@ var require_streamtape = __commonJS({
 var require_uqload = __commonJS({
   "src/extractors/uqload.js"(exports2, module2) {
     var { USER_AGENT: USER_AGENT2 } = require_common();
+    function isUqloadDisabled() {
+      if (typeof global !== "undefined" && global && global.DISABLE_UQLOAD === true) {
+        return true;
+      }
+      const rawEnv = typeof process !== "undefined" && process && process.env && typeof process.env.DISABLE_UQLOAD === "string" ? process.env.DISABLE_UQLOAD.trim().toLowerCase() : "";
+      return ["1", "true", "yes", "on"].includes(rawEnv);
+    }
     function extractUqload(url, refererBase = "https://uqload.io/") {
       return __async(this, null, function* () {
+        if (isUqloadDisabled()) return null;
         try {
           if (url.startsWith("//")) url = "https:" + url;
           const response = yield fetch(url, {

@@ -1,6 +1,24 @@
 const { USER_AGENT } = require('./common');
 
+function isUqloadDisabled() {
+  if (typeof global !== 'undefined' && global && global.DISABLE_UQLOAD === true) {
+    return true;
+  }
+
+  const rawEnv =
+    typeof process !== 'undefined' &&
+    process &&
+    process.env &&
+    typeof process.env.DISABLE_UQLOAD === 'string'
+      ? process.env.DISABLE_UQLOAD.trim().toLowerCase()
+      : '';
+
+  return ['1', 'true', 'yes', 'on'].includes(rawEnv);
+}
+
 async function extractUqload(url, refererBase = 'https://uqload.io/') {
+  if (isUqloadDisabled()) return null;
+
   try {
     if (url.startsWith("//")) url = "https:" + url;
     const response = await fetch(url, {

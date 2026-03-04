@@ -1,6 +1,24 @@
 const { USER_AGENT, unPack } = require('./common');
 
+function isMixDropDisabled() {
+  if (typeof global !== 'undefined' && global && global.DISABLE_MIXDROP === true) {
+    return true;
+  }
+
+  const rawEnv =
+    typeof process !== 'undefined' &&
+    process &&
+    process.env &&
+    typeof process.env.DISABLE_MIXDROP === 'string'
+      ? process.env.DISABLE_MIXDROP.trim().toLowerCase()
+      : '';
+
+  return ['1', 'true', 'yes', 'on'].includes(rawEnv);
+}
+
 async function extractMixDrop(url, refererBase = 'https://m1xdrop.net/') {
+  if (isMixDropDisabled()) return null;
+
   try {
     if (url.startsWith("//")) url = "https:" + url;
     

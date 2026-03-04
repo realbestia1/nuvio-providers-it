@@ -80,6 +80,22 @@ const express = require('express');
 const app = express();
 const path = require('path');
 const { getProviderUrl } = require('./src/provider_urls.js');
+const DISABLE_MIXDROP_ENV =
+    typeof process !== 'undefined' &&
+    process &&
+    process.env &&
+    typeof process.env.DISABLE_MIXDROP === 'string'
+        ? process.env.DISABLE_MIXDROP.trim().toLowerCase()
+        : '';
+const DISABLE_MIXDROP_IN_ADDON = !['0', 'false', 'no', 'off'].includes(DISABLE_MIXDROP_ENV);
+const DISABLE_UQLOAD_ENV =
+    typeof process !== 'undefined' &&
+    process &&
+    process.env &&
+    typeof process.env.DISABLE_UQLOAD === 'string'
+        ? process.env.DISABLE_UQLOAD.trim().toLowerCase()
+        : '';
+const DISABLE_UQLOAD_IN_ADDON = !['0', 'false', 'no', 'off'].includes(DISABLE_UQLOAD_ENV);
 const CF_PROXY_URL_ENV =
     typeof process !== 'undefined' &&
     process &&
@@ -93,6 +109,14 @@ const normalizedProxyEnv = String(CF_PROXY_URL_ENV || '').trim().replace(/\/+$/,
 if (/^https?:\/\//i.test(normalizedProxyEnv)) {
     global.CF_PROXY_URL = normalizedProxyEnv;
     logInfo(`[Proxy] Global CF_PROXY_URL set from CF_PROXY_URL: ${global.CF_PROXY_URL}`);
+}
+
+// Uqload should be skipped in addon mode to avoid failing extractor calls/noisy DNS errors.
+if (DISABLE_UQLOAD_IN_ADDON) {
+    global.DISABLE_UQLOAD = true;
+}
+if (DISABLE_MIXDROP_IN_ADDON) {
+    global.DISABLE_MIXDROP = true;
 }
 
 // Performance Metrics
