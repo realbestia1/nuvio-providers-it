@@ -45,7 +45,6 @@ function getQualityFromName(qualityStr) {
   if (quality === '360P') return '360p';
   if (quality === '240P') return '240p';
 
-  // Try to extract number from string and format consistently
   const match = qualityStr.match(/(\d{3,4})[pP]?/);
   if (match) {
     const resolution = parseInt(match[1]);
@@ -91,6 +90,7 @@ function getImdbId(tmdbId, type) {
     }
   });
 }
+
 function getMetadata(id, type) {
   return __async(this, null, function* () {
     try {
@@ -122,9 +122,11 @@ function getMetadata(id, type) {
     }
   });
 }
+
 function getStreams(id, type, season, episode) {
   if (['series', 'tv'].includes(String(type).toLowerCase())) return [];
   return __async(this, null, function* () {
+    const normalizedType = String(type).toLowerCase();
     let cleanId = id.toString();
 
     if (cleanId.startsWith("tmdb:")) cleanId = cleanId.replace("tmdb:", "");
@@ -146,9 +148,8 @@ function getStreams(id, type, season, episode) {
         ? (metadata.title || metadata.name || metadata.original_title || metadata.original_name) 
         : (normalizedType === "movie" ? "Film Sconosciuto" : "Serie TV");
     
-    let url;
-    const normalizedType = String(type).toLowerCase();
     const baseUrl = getGuardaHdBaseUrl();
+    let url;
     if (normalizedType === "movie") {
       url = `${baseUrl}/set-movie-a/${imdbId}`;
     } else if (normalizedType === "tv") {
@@ -156,6 +157,7 @@ function getStreams(id, type, season, episode) {
     } else {
       return [];
     }
+    
     try {
       const response = yield fetch(url, {
         headers: {
@@ -165,22 +167,30 @@ function getStreams(id, type, season, episode) {
       });
       if (!response.ok) return [];
       const html = yield response.text();
-      const streams = [];
-      const iframeRegex = /<iframe[^>]+id=["']_player["'][^>]+src=["']([^"']+)["']/;
-      const iframeMatch = iframeRegex.exec(html);
-      const links = [];
-      if (iframeMatch) {
-        links.push({ url: iframeMatch[1], name: "Active Player" });
+      
+      const linksSet = new Set();
+      const iframeRegex = /<iframe\b[^>]+src=["']([^"']+)["']/gi;
+      let iframeMatch;
+      while ((iframeMatch = iframeRegex.exec(html)) !== null) {
+        linksSet.add(iframeMatch[1]);
       }
+
       const linkRegex = /data-link=["']([^"']+)["']/g;
       let match;
       while ((match = linkRegex.exec(html)) !== null) {
-        links.push({ url: match[1], name: "Alternative" });
+        linksSet.add(match[1]);
       }
-      
+
+      const directRegex = /https?:\/\/(?:www\.)?(?:loadm|uqload|dropload|dr0pstream|mixdrop|m1xdrop|supervideo|streamtape)[^"'<\s]+/ig;
+      const directMatches = html.match(directRegex) || [];
+      for (const raw of directMatches) {
+          linksSet.add(raw);
+      }
+
+      const streams = [];
       const displayName = normalizedType === "movie" ? title : `${title} ${season}x${episode}`;
-      const processUrl = async (link) => {
-        let streamUrl = link.url;
+      
+      const processUrl = async (streamUrl) => {
         if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;
         
         try {
@@ -191,13 +201,7 @@ function getStreams(id, type, season, episode) {
               let quality = "HD";
               const playlistQuality = await checkQualityFromPlaylist(extracted.url, extracted.headers);
               if (playlistQuality) quality = playlistQuality;
-              else {
-                const urlQuality = getQualityFromUrl(extracted.url);
-                if (urlQuality) quality = urlQuality;
-              }
-              
               const normalizedQuality = getQualityFromName(quality);
-
               streams.push({
                 name: `GuardaHD - MixDrop`,
                 title: displayName,
@@ -207,20 +211,14 @@ function getStreams(id, type, season, episode) {
                 type: "direct"
               });
             }
-          } else if (streamUrl.includes("dropload")) {
+          } else if (streamUrl.includes("dropload") || streamUrl.includes("dr0pstream")) {
             console.log(`[GuardaHD] Attempting DropLoad extraction for ${streamUrl}`);
             const extracted = await extractDropLoad(streamUrl);
             if (extracted && extracted.url) {
               let quality = "HD";
               const playlistQuality = await checkQualityFromPlaylist(extracted.url, extracted.headers);
               if (playlistQuality) quality = playlistQuality;
-              else {
-                const urlQuality = getQualityFromUrl(extracted.url);
-                if (urlQuality) quality = urlQuality;
-              }
-              
               const normalizedQuality = getQualityFromName(quality);
-
               streams.push({
                 name: `GuardaHD - DropLoad`,
                 title: displayName,
@@ -237,13 +235,7 @@ function getStreams(id, type, season, episode) {
               let quality = "HD";
               const playlistQuality = await checkQualityFromPlaylist(extracted.url, extracted.headers || {});
               if (playlistQuality) quality = playlistQuality;
-              else {
-                const urlQuality = getQualityFromUrl(extracted.url);
-                if (urlQuality) quality = urlQuality;
-              }
-              
               const normalizedQuality = getQualityFromName(quality);
-
               streams.push({
                 name: `GuardaHD - SuperVideo`,
                 title: displayName,
@@ -258,9 +250,12 @@ function getStreams(id, type, season, episode) {
           console.error("[GuardaHD] Process URL error:", e);
         }
       };
-      yield Promise.all(links.map((link) => processUrl(link)));
+
+      const uniqueLinks = Array.from(linksSet);
+      yield Promise.all(uniqueLinks.map((link) => processUrl(link)));
+
       const uniqueStreams = [];
-      const seenUrls = /* @__PURE__ */ new Set();
+      const seenUrls = new Set();
       for (const s of streams) {
         if (!seenUrls.has(s.url)) {
           seenUrls.add(s.url);

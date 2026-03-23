@@ -181,15 +181,16 @@ var require_dropload = __commonJS({
           });
           if (!response.ok) return null;
           const html = yield response.text();
-          const regex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
+          const regex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('([\\|]*)'\)/;
           const match = regex.exec(html);
           if (match) {
             const p = match[1];
             const a = parseInt(match[2]);
             const c = parseInt(match[3]);
-            const k = match[4].split("|");
+            const separator = match[5] || "|";
+            const k = match[4].split(separator);
             const unpacked = unPack(p, a, c, k, null, {});
-            const fileMatch = unpacked.match(/file:"(.*?)"/);
+            const fileMatch = unpacked.match(/file\s*:\s*["'](.*?)["']/);
             if (fileMatch) {
               let streamUrl = fileMatch[1];
               if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;
@@ -7534,7 +7535,7 @@ var require_provider_urls = __commonJS({
 var require_guardoserie = __commonJS({
   "src/guardoserie/index.js"(exports2, module2) {
     var { USER_AGENT, getProxiedUrl } = require_common();
-    var { extractLoadm, extractUqload, extractDropLoad } = require_extractors();
+    var { extractLoadm, extractUqload, extractDropLoad, extractMixDrop, extractSuperVideo } = require_extractors();
     var { formatStream } = require_formatter();
     var { checkQualityFromPlaylist } = require_quality_helper();
     var { getProviderUrl } = require_provider_urls();
@@ -7630,38 +7631,35 @@ var require_guardoserie = __commonJS({
         normalized = `https:${normalized}`;
       } else if (normalized.startsWith("/")) {
         normalized = `${getGuardoserieBaseUrl()}${normalized}`;
-      } else if (!/^https?:\/\//i.test(normalized) && /(loadm|uqload|dropload)/i.test(normalized)) {
+      } else if (!/^https?:\/\//i.test(normalized) && /(loadm|uqload|dropload|dr0pstream)/i.test(normalized)) {
         normalized = `https://${normalized.replace(/^\/+/, "")}`;
       }
       return /^https?:\/\//i.test(normalized) ? normalized : null;
     }
-    function extractPlayerLinkFromHtml(html) {
-      if (!html) return null;
+    function extractPlayerLinksFromHtml(html) {
+      if (!html) return [];
+      const links = /* @__PURE__ */ new Set();
       const iframeTags = html.match(/<iframe\b[^>]*>/ig) || [];
       for (const tag of iframeTags) {
-        const candidates = [];
         const attrRegex = /\b(?:data-src|src)\s*=\s*(['"])(.*?)\1/ig;
         let attrMatch;
         while ((attrMatch = attrRegex.exec(tag)) !== null) {
           const candidate = normalizePlayerLink(attrMatch[2]);
-          if (candidate) candidates.push(candidate);
+          if (candidate) links.add(candidate);
         }
-        const preferred = candidates.find((c) => /(loadm|uqload|dropload)/i.test(c));
-        if (preferred) return preferred;
-        if (candidates.length > 0) return candidates[0];
       }
       const directRegexes = [
-        /https?:\/\/(?:www\.)?(?:loadm|uqload|dropload)[^"'<\s]+/ig,
-        /https?:\\\/\\\/(?:www\\.)?(?:loadm|uqload|dropload)[^"'<\s]+/ig
+        /https?:\/\/(?:www\.)?(?:loadm|uqload|dropload|dr0pstream|mixdrop|m1xdrop|supervideo|vidoza)[^"'<\s]+/ig,
+        /https?:\\\/\\\/(?:www\\.)?(?:loadm|uqload|dropload|dr0pstream|mixdrop|m1xdrop|supervideo|vidoza)[^"'<\s]+/ig
       ];
       for (const regex of directRegexes) {
         const matches = html.match(regex) || [];
         for (const raw of matches) {
           const candidate = normalizePlayerLink(raw);
-          if (candidate) return candidate;
+          if (candidate) links.add(candidate);
         }
       }
-      return null;
+      return Array.from(links);
     }
     function getQualityFromName(qualityStr) {
       if (!qualityStr) return "Unknown";
@@ -8047,8 +8045,8 @@ var require_guardoserie = __commonJS({
             "Referer": `${getGuardoserieBaseUrl()}/`
           } });
           const finalHtml = yield finalRes.text();
-          let playerLink = extractPlayerLinkFromHtml(finalHtml);
-          if (!playerLink && /\/serie\//i.test(episodeUrl)) {
+          let playerLinks = extractPlayerLinksFromHtml(finalHtml);
+          if (playerLinks.length === 0 && /\/serie\//i.test(episodeUrl)) {
             const fallbackEpisodeUrl = extractEpisodeUrlFromSeriesPage(finalHtml, season, episode);
             if (fallbackEpisodeUrl && fallbackEpisodeUrl !== episodeUrl) {
               console.log(`[Guardoserie] Fallback to derived episode URL: ${fallbackEpisodeUrl}`);
@@ -8059,76 +8057,106 @@ var require_guardoserie = __commonJS({
                 "Referer": `${getGuardoserieBaseUrl()}/`
               } });
               const retryHtml = yield retryRes.text();
-              const fallbackPlayerLink = extractPlayerLinkFromHtml(retryHtml);
-              if (fallbackPlayerLink) {
-                playerLink = fallbackPlayerLink;
+              const fallbackLinks = extractPlayerLinksFromHtml(retryHtml);
+              if (fallbackLinks.length > 0) {
+                playerLinks = fallbackLinks;
                 episodeUrl = fallbackEpisodeUrl;
               }
             }
           }
-          if (!playerLink) {
-            console.log(`[Guardoserie] No player iframe found`);
+          if (playerLinks.length === 0) {
+            console.log(`[Guardoserie] No player links found`);
             return [];
           }
-          console.log(`[Guardoserie] Found player link: ${playerLink}`);
+          console.log(`[Guardoserie] Found ${playerLinks.length} player links`);
           const displayName = type === "tv" || type === "series" ? `${title} ${season}x${episode}` : title;
           let streams = [];
-          if (playerLink.includes("loadm")) {
-            const domain = "guardoserie.horse";
-            console.log(`[Guardoserie] Extracting Loadm: ${playerLink}`);
-            const extracted = yield extractLoadm(playerLink, domain);
-            console.log(`[Guardoserie] Loadm extraction results: ${(extracted == null ? void 0 : extracted.length) || 0}`);
-            for (const s of extracted || []) {
-              const directLoadmUrl = s.url;
-              let quality = "HD";
-              if (s.url.includes(".m3u8")) {
-                const detected = yield checkQualityFromPlaylist(directLoadmUrl, s.headers || {});
-                if (detected) quality = detected;
+          const streamPromises = playerLinks.map((playerLink) => __async(null, null, function* () {
+            try {
+              if (playerLink.includes("loadm")) {
+                const domain = "guardoserie.horse";
+                const extracted = yield extractLoadm(playerLink, domain);
+                const localStreams = [];
+                for (const s of extracted || []) {
+                  const directLoadmUrl = s.url;
+                  let quality = "HD";
+                  if (s.url.includes(".m3u8")) {
+                    const detected = yield checkQualityFromPlaylist(directLoadmUrl, s.headers || {});
+                    if (detected) quality = detected;
+                  }
+                  const normalizedQuality = getQualityFromName(quality);
+                  localStreams.push(formatStream({
+                    url: directLoadmUrl,
+                    headers: s.headers,
+                    name: `Guardoserie - Loadm`,
+                    title: displayName,
+                    quality: normalizedQuality,
+                    type: "direct",
+                    behaviorHints: s.behaviorHints
+                  }, "Guardoserie"));
+                }
+                return localStreams;
+              } else if (playerLink.includes("uqload")) {
+                const extracted = yield extractUqload(playerLink);
+                if (extracted && extracted.url) {
+                  return [formatStream({
+                    url: extracted.url,
+                    headers: extracted.headers,
+                    name: `Guardoserie - Uqload`,
+                    title: displayName,
+                    quality: getQualityFromName("HD"),
+                    type: "direct"
+                  }, "Guardoserie")];
+                }
+              } else if (playerLink.includes("dropload") || playerLink.includes("dr0pstream")) {
+                const extracted = yield extractDropLoad(playerLink);
+                if (extracted && extracted.url) {
+                  let quality = "HD";
+                  if (extracted.url.includes(".m3u8")) {
+                    const detected = yield checkQualityFromPlaylist(extracted.url, extracted.headers || {});
+                    if (detected) quality = detected;
+                  }
+                  return [formatStream({
+                    url: extracted.url,
+                    headers: extracted.headers,
+                    name: `Guardoserie - DropLoad`,
+                    title: displayName,
+                    quality: getQualityFromName(quality),
+                    type: "direct"
+                  }, "Guardoserie")];
+                }
+              } else if (playerLink.includes("mixdrop") || playerLink.includes("m1xdrop")) {
+                const extracted = yield extractMixDrop(playerLink);
+                if (extracted && extracted.url) {
+                  return [formatStream({
+                    url: extracted.url,
+                    headers: extracted.headers,
+                    name: `Guardoserie - MixDrop`,
+                    title: displayName,
+                    quality: getQualityFromName("HD"),
+                    type: "direct"
+                  }, "Guardoserie")];
+                }
+              } else if (playerLink.includes("supervideo")) {
+                const extracted = yield extractSuperVideo(playerLink);
+                if (extracted && extracted.url) {
+                  return [formatStream({
+                    url: extracted.url,
+                    headers: extracted.headers,
+                    name: `Guardoserie - SuperVideo`,
+                    title: displayName,
+                    quality: getQualityFromName("HD"),
+                    type: "direct"
+                  }, "Guardoserie")];
+                }
               }
-              const normalizedQuality = getQualityFromName(quality);
-              streams.push(formatStream({
-                url: directLoadmUrl,
-                headers: s.headers,
-                name: `Guardoserie - Loadm`,
-                title: displayName,
-                quality: normalizedQuality,
-                type: "direct",
-                behaviorHints: s.behaviorHints
-              }, "Guardoserie"));
+            } catch (e) {
+              console.error(`[Guardoserie] Extraction error for ${playerLink}:`, e);
             }
-          } else if (playerLink.includes("uqload")) {
-            const extracted = yield extractUqload(playerLink);
-            if (extracted && extracted.url) {
-              let quality = "HD";
-              const normalizedQuality = getQualityFromName(quality);
-              streams.push(formatStream({
-                url: extracted.url,
-                headers: extracted.headers,
-                name: `Guardoserie - Uqload`,
-                title: displayName,
-                quality: normalizedQuality,
-                type: "direct"
-              }, "Guardoserie"));
-            }
-          } else if (playerLink.includes("dropload")) {
-            const extracted = yield extractDropLoad(playerLink);
-            if (extracted && extracted.url) {
-              let quality = "HD";
-              if (extracted.url.includes(".m3u8")) {
-                const detected = yield checkQualityFromPlaylist(extracted.url, extracted.headers || {});
-                if (detected) quality = detected;
-              }
-              const normalizedQuality = getQualityFromName(quality);
-              streams.push(formatStream({
-                url: extracted.url,
-                headers: extracted.headers,
-                name: `Guardoserie - DropLoad`,
-                title: displayName,
-                quality: normalizedQuality,
-                type: "direct"
-              }, "Guardoserie"));
-            }
-          }
+            return [];
+          }));
+          const nestedStreams = yield Promise.all(streamPromises);
+          streams = nestedStreams.flat().filter(Boolean);
           return streams;
         } catch (e) {
           console.error(`[Guardoserie] Error:`, e);

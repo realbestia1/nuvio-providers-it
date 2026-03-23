@@ -181,15 +181,16 @@ var require_dropload = __commonJS({
           });
           if (!response.ok) return null;
           const html = yield response.text();
-          const regex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
+          const regex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('([\\|]*)'\)/;
           const match = regex.exec(html);
           if (match) {
             const p = match[1];
             const a = parseInt(match[2]);
             const c = parseInt(match[3]);
-            const k = match[4].split("|");
+            const separator = match[5] || "|";
+            const k = match[4].split(separator);
             const unpacked = unPack(p, a, c, k, null, {});
-            const fileMatch = unpacked.match(/file:"(.*?)"/);
+            const fileMatch = unpacked.match(/file\s*:\s*["'](.*?)["']/);
             if (fileMatch) {
               let streamUrl = fileMatch[1];
               if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;

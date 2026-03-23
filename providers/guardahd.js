@@ -306,15 +306,16 @@ var require_dropload = __commonJS({
           });
           if (!response.ok) return null;
           const html = yield response.text();
-          const regex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)/;
+          const regex = /eval\(function\(p,a,c,k,e,d\)\s*\{.*?\}\s*\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('([\\|]*)'\)/;
           const match = regex.exec(html);
           if (match) {
             const p = match[1];
             const a = parseInt(match[2]);
             const c = parseInt(match[3]);
-            const k = match[4].split("|");
+            const separator = match[5] || "|";
+            const k = match[4].split(separator);
             const unpacked = unPack(p, a, c, k, null, {});
-            const fileMatch = unpacked.match(/file:"(.*?)"/);
+            const fileMatch = unpacked.match(/file\s*:\s*["'](.*?)["']/);
             if (fileMatch) {
               let streamUrl = fileMatch[1];
               if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;
@@ -7645,6 +7646,7 @@ function getMetadata(id, type) {
 function getStreams(id, type, season, episode) {
   if (["series", "tv"].includes(String(type).toLowerCase())) return [];
   return __async2(this, null, function* () {
+    const normalizedType = String(type).toLowerCase();
     let cleanId = id.toString();
     if (cleanId.startsWith("tmdb:")) cleanId = cleanId.replace("tmdb:", "");
     let imdbId = cleanId;
@@ -7660,9 +7662,8 @@ function getStreams(id, type, season, episode) {
       console.error("[GuardaHD] Error fetching metadata:", e);
     }
     const title = metadata && (metadata.title || metadata.name || metadata.original_title || metadata.original_name) ? metadata.title || metadata.name || metadata.original_title || metadata.original_name : normalizedType === "movie" ? "Film Sconosciuto" : "Serie TV";
-    let url;
-    const normalizedType = String(type).toLowerCase();
     const baseUrl = getGuardaHdBaseUrl();
+    let url;
     if (normalizedType === "movie") {
       url = `${baseUrl}/set-movie-a/${imdbId}`;
     } else if (normalizedType === "tv") {
@@ -7679,21 +7680,25 @@ function getStreams(id, type, season, episode) {
       });
       if (!response.ok) return [];
       const html = yield response.text();
-      const streams = [];
-      const iframeRegex = /<iframe[^>]+id=["']_player["'][^>]+src=["']([^"']+)["']/;
-      const iframeMatch = iframeRegex.exec(html);
-      const links = [];
-      if (iframeMatch) {
-        links.push({ url: iframeMatch[1], name: "Active Player" });
+      const linksSet = /* @__PURE__ */ new Set();
+      const iframeRegex = /<iframe\b[^>]+src=["']([^"']+)["']/gi;
+      let iframeMatch;
+      while ((iframeMatch = iframeRegex.exec(html)) !== null) {
+        linksSet.add(iframeMatch[1]);
       }
       const linkRegex = /data-link=["']([^"']+)["']/g;
       let match;
       while ((match = linkRegex.exec(html)) !== null) {
-        links.push({ url: match[1], name: "Alternative" });
+        linksSet.add(match[1]);
       }
+      const directRegex = /https?:\/\/(?:www\.)?(?:loadm|uqload|dropload|dr0pstream|mixdrop|m1xdrop|supervideo|streamtape)[^"'<\s]+/ig;
+      const directMatches = html.match(directRegex) || [];
+      for (const raw of directMatches) {
+        linksSet.add(raw);
+      }
+      const streams = [];
       const displayName = normalizedType === "movie" ? title : `${title} ${season}x${episode}`;
-      const processUrl = (link) => __async(null, null, function* () {
-        let streamUrl = link.url;
+      const processUrl = (streamUrl) => __async(null, null, function* () {
         if (streamUrl.startsWith("//")) streamUrl = "https:" + streamUrl;
         try {
           if (streamUrl.includes("mixdrop") || streamUrl.includes("m1xdrop")) {
@@ -7703,10 +7708,6 @@ function getStreams(id, type, season, episode) {
               let quality = "HD";
               const playlistQuality = yield checkQualityFromPlaylist(extracted.url, extracted.headers);
               if (playlistQuality) quality = playlistQuality;
-              else {
-                const urlQuality = getQualityFromUrl(extracted.url);
-                if (urlQuality) quality = urlQuality;
-              }
               const normalizedQuality = getQualityFromName(quality);
               streams.push({
                 name: `GuardaHD - MixDrop`,
@@ -7717,17 +7718,13 @@ function getStreams(id, type, season, episode) {
                 type: "direct"
               });
             }
-          } else if (streamUrl.includes("dropload")) {
+          } else if (streamUrl.includes("dropload") || streamUrl.includes("dr0pstream")) {
             console.log(`[GuardaHD] Attempting DropLoad extraction for ${streamUrl}`);
             const extracted = yield extractDropLoad(streamUrl);
             if (extracted && extracted.url) {
               let quality = "HD";
               const playlistQuality = yield checkQualityFromPlaylist(extracted.url, extracted.headers);
               if (playlistQuality) quality = playlistQuality;
-              else {
-                const urlQuality = getQualityFromUrl(extracted.url);
-                if (urlQuality) quality = urlQuality;
-              }
               const normalizedQuality = getQualityFromName(quality);
               streams.push({
                 name: `GuardaHD - DropLoad`,
@@ -7745,10 +7742,6 @@ function getStreams(id, type, season, episode) {
               let quality = "HD";
               const playlistQuality = yield checkQualityFromPlaylist(extracted.url, extracted.headers || {});
               if (playlistQuality) quality = playlistQuality;
-              else {
-                const urlQuality = getQualityFromUrl(extracted.url);
-                if (urlQuality) quality = urlQuality;
-              }
               const normalizedQuality = getQualityFromName(quality);
               streams.push({
                 name: `GuardaHD - SuperVideo`,
@@ -7764,7 +7757,8 @@ function getStreams(id, type, season, episode) {
           console.error("[GuardaHD] Process URL error:", e);
         }
       });
-      yield Promise.all(links.map((link) => processUrl(link)));
+      const uniqueLinks = Array.from(linksSet);
+      yield Promise.all(uniqueLinks.map((link) => processUrl(link)));
       const uniqueStreams = [];
       const seenUrls = /* @__PURE__ */ new Set();
       for (const s of streams) {
