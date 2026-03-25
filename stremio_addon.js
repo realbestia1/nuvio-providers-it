@@ -1767,7 +1767,7 @@ app.get('/', (req, res) => {
                     ${providersHtml}
                 </div>
 
-                <div class="config-panel">
+                <div class="config-panel" style="display: none;">
                     <label class="config-toggle" for="easyCatalogsLangIt">
                         <input type="checkbox" id="easyCatalogsLangIt" name="easyCatalogsLangIt">
                         <div>
@@ -1808,7 +1808,6 @@ app.get('/', (req, res) => {
                 stremioUrl = \`stremio://\${currentHost}\${configPath}/manifest.json\`;
                 installBtn.href = stremioUrl;
             }
-
             if (easyCatalogsToggle) {
                 easyCatalogsToggle.addEventListener('change', updateInstallLinks);
             }
