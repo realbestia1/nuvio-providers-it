@@ -263,7 +263,7 @@ global.fetch = async function (url, options = {}) {
 const ADDON_MAPPING_CACHE_TTL = 10800000;
 
 function getMappingApiUrl() {
-    return 'https://animemapping.stremio.dpdns.org';
+    return 'https://animemapping.realbestia.com';
 }
 const TMDB_API_KEY = '68e094699525b18a70bab2f86b1fa706';
 const CANONICAL_RESOLVE_TIMEOUT = 1500;
