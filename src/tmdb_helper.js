@@ -1,5 +1,5 @@
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
-const MAPPING_API_URL = "https://animemapping.stremio.dpdns.org";
+const MAPPING_API_URL = "https://animemapping.realbestia.com";
 
 async function resolveTmdbFromKitsu(kitsuId) {
     try {
